@@ -80,19 +80,13 @@ namespace core
 
 	void Camera::RotateUp(float times) noexcept
 	{
-		m_Pitch += times * m_RotationSpeed;
-#if CAP_PITCH
-		m_Pitch = fmax(fmin(m_Pitch, MAX_PITCH), MIN_PITCH);
-#endif
+		m_Pitch = glm::clamp(m_Pitch + times * m_RotationSpeed, glm::radians(-89.0f), glm::radians(89.0f));
 		m_ViewDirection = getDirectionFromPitchAndYaw();
 	}
 
 	void Camera::RotateDown(float times) noexcept
 	{
-		m_Pitch -= times * m_RotationSpeed;
-#if CAP_PITCH
-		m_Pitch = fmax(fmin(m_Pitch, MAX_PITCH), MIN_PITCH);
-#endif
+		m_Pitch = glm::clamp(m_Pitch - times * m_RotationSpeed, glm::radians(-89.0f), glm::radians(89.0f));
 		m_ViewDirection = getDirectionFromPitchAndYaw();
 	}
 

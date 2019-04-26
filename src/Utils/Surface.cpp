@@ -23,10 +23,7 @@ namespace core
 			std::string t = std::string("File not found: ") + file;
 			const char *msg = t.c_str();
 			std::cout << msg << std::endl;
-			m_TexBuffer = new glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-			m_Width = 1;
-			m_Height = 1;
-			return;
+			throw std::runtime_error(msg);
 		}
 		else
 			fclose(f);

@@ -8,11 +8,8 @@
 
 namespace core
 {
-#define ROTATION_SPEED 0.002f
+#define ROTATION_SPEED 0.001f
 #define MOVEMENT_SPEED 0.005f
-
-	constexpr float MAX_PITCH = 89.f * 0.0174532925f;
-	constexpr float MIN_PITCH = -89.f * 0.0174532925f;
 
 	class Camera
 	{
@@ -103,7 +100,7 @@ namespace core
 		{
 			bool moved = false;
 			if (keys[GLFW_KEY_LEFT_SHIFT])
-				speed = 5.0f;
+				speed *= 2.0f;
 
 			if (keys[GLFW_KEY_A])
 				MoveLeft(MOVEMENT_SPEED * speed), moved = true;
@@ -118,13 +115,13 @@ namespace core
 			if (keys[GLFW_KEY_SPACE])
 				MoveUp(MOVEMENT_SPEED * speed), moved = true;
 			if (keys[GLFW_KEY_UP])
-				RotateUp(), moved = true;
+				RotateUp(speed), moved = true;
 			if (keys[GLFW_KEY_DOWN])
-				RotateDown(), moved = true;
+				RotateDown(speed), moved = true;
 			if (keys[GLFW_KEY_LEFT])
-				RotateLeft(), moved = true;
+				RotateLeft(speed), moved = true;
 			if (keys[GLFW_KEY_RIGHT])
-				RotateRight(), moved = true;
+				RotateRight(speed), moved = true;
 			return moved;
 		}
 

@@ -70,7 +70,7 @@ public:
 
 	std::vector<uvec3> m_Indices{};
 
-	unsigned int loadTexture(const std::string &path);
+	int loadTexture(const std::string &path);
 private:
 	void processNode(aiNode* node, const aiScene* scene, std::vector<Mesh> &meshes, const std::string& dir);
 

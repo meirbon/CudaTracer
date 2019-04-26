@@ -15,6 +15,7 @@ include_directories( ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 file(GLOB_RECURSE SOURCES "main.cpp" "src/*.cpp" "src/*.h" "src/*.cu" "src/*.cuh")
 
 set(CUDA_NVCC_COMPILE_DEFINITIONS "${CUDA_NVCC_COMPILE_DEFINITIONS}" "GLM_FORCE_PURE")
+set(CMAKE_CXX_STANDARD 17)
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 

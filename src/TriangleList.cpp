@@ -78,7 +78,7 @@ unsigned int TriangleList::addMaterial(Material mat)
 	return m;
 }
 
-void TriangleList::loadModel(const std::string& path, float scale, mat4 mat, int material, bool normalize)
+void TriangleList::loadModel(const std::string & path, float scale, mat4 mat, int material, bool normalize)
 {
 	Assimp::Importer importer;
 	importer.SetPropertyBool(AI_CONFIG_PP_PTV_NORMALIZE, normalize);
@@ -185,7 +185,7 @@ TriangleList::GPUTextures TriangleList::createTextureBuffer()
 	return buffer;
 }
 
-void TriangleList::processNode(aiNode * node, const aiScene * scene, std::vector<Mesh> &meshes, const std::string& dir)
+void TriangleList::processNode(aiNode * node, const aiScene * scene, std::vector<Mesh> & meshes, const std::string & dir)
 {
 	for (unsigned int i = 0; i < node->mNumMeshes; i++)
 	{
@@ -199,7 +199,7 @@ void TriangleList::processNode(aiNode * node, const aiScene * scene, std::vector
 	}
 }
 
-TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scene, const std::string& dir)
+TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scene, const std::string & dir)
 {
 	Mesh m{};
 
@@ -221,7 +221,7 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 
 	for (unsigned int i = 0; i < mesh->mNumFaces; i++)
 	{
-		aiFace &face = mesh->mFaces[i];
+		aiFace& face = mesh->mFaces[i];
 		for (unsigned int j = 0; j < face.mNumIndices; j++)
 		{
 			m.indices.emplace_back(face.mIndices[j]);
@@ -233,7 +233,7 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 	// return a mesh object created from the extracted mesh data
 
 	auto isNotZero = [](aiColor3D col) {
-		return col.r > 0.0001f && col.g > 0.0001f && col.b > 0.0001f;
+		return col.r > 0.0001f&& col.g > 0.0001f&& col.b > 0.0001f;
 	};
 
 	Material mat;
@@ -276,7 +276,7 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 	{
 		float roughness;
 		if (material->Get(AI_MATKEY_SHININESS, roughness) != AI_SUCCESS || roughness < 2.0f)
-			mat = Material::lambertian(vec3(1.0f), 1.0f, dTexIdx, nTexIdx, mTexIdx, dispTexIdx);
+			mat = Material::lambertian(vec3(1.0f), dTexIdx, nTexIdx, mTexIdx, dispTexIdx);
 		else
 		{
 			mat = Material::lambertian(vec3(1.0f), dTexIdx, nTexIdx, mTexIdx, dispTexIdx);
@@ -333,14 +333,20 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 	return m;
 }
 
-unsigned int TriangleList::loadTexture(const std::string & path)
+int TriangleList::loadTexture(const std::string & path)
 {
 	if (m_LoadedTextures.find(path) != m_LoadedTextures.end()) // Texture already in memory
 		return m_LoadedTextures.at(path);
 
-	auto* tex = new core::Surface(path.c_str());
-	unsigned int idx = m_Textures.size();
-	m_LoadedTextures[path] = idx;
-	m_Textures.push_back(tex);
-	return idx;
+	try {
+		auto* tex = new core::Surface(path.c_str());
+		unsigned int idx = m_Textures.size();
+		m_LoadedTextures[path] = idx;
+		m_Textures.push_back(tex);
+		return idx;
+	}
+	catch (const std::runtime_error & e)
+	{
+		return -1;
+	}
 }

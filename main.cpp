@@ -30,8 +30,8 @@ static float movementSpeed = 1.0f;
 static Params params;
 static size_t focusedMatIdx;
 static std::tuple<Material*, microfacet::Microfacet*> focusedMat = std::make_tuple(nullptr, nullptr);
-#define SCRWIDTH 1920
-#define SCRHEIGHT 1080
+#define SCRWIDTH 1280
+#define SCRHEIGHT 720
 
 static int rayBufferSize = SCRWIDTH * SCRHEIGHT;
 static double mouseX, mouseY;
@@ -61,9 +61,9 @@ int main(int argc, char* argv[])
 	auto triangleList = TriangleList();
 	auto* tPool = new ctpl::ThreadPool(ctpl::nr_of_cores);
 
-	const std::string sky = "Models/HDR_111_Parking_Lot_2/HDR_111_Parking_Lot_2_Bg.jpg";
-	params.gpuScene.skyboxEnabled = true;
+	const std::string sky = "Models/envmaps/pisa.png";
 	params.gpuScene.skyboxTexture = triangleList.loadTexture(sky);
+	params.gpuScene.skyboxEnabled = params.gpuScene.skyboxTexture >= 0;
 
 	std::string nanosuit = "Models/nanosuit/nanosuit.obj";
 	std::string sponza = "Models/sponza/sponza.obj";

@@ -40,7 +40,7 @@ struct SceneData {
 	microfacet::Microfacet* microfacets = nullptr;
 	float normalEpsilon = 1e-5f;
 	float distEpsilon = 1e-5f;
-	float triangleEpsilon = 1e-4f;
+	float triangleEpsilon = 1e-3f;
 
 	__device__ inline Material &getMaterial(unsigned int hit_idx)
 	{
