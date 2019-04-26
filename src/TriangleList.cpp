@@ -281,6 +281,7 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 		{
 			mat = Material::lambertian(vec3(1.0f), dTexIdx, nTexIdx, mTexIdx, dispTexIdx);
 			mat.roughness = roughness;
+			mat.type = GGX;
 		}
 
 		m.materialIdx = addMaterial(mat);
@@ -293,7 +294,7 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 	}
 	else if (material->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS && isNotZero(color))
 	{
-		float roughness;
+		float roughness = 0.0f;
 		aiColor3D specColor;
 		if (material->Get(AI_MATKEY_COLOR_SPECULAR, specColor) == AI_SUCCESS)
 		{
@@ -311,6 +312,7 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 		{
 			mat = Material::lambertian({ color.r, color.g, color.b }, dTexIdx, nTexIdx, mTexIdx, dispTexIdx);
 			mat.roughness = roughness;
+			mat.type = GGX;
 		}
 	}
 	else if (material->Get(AI_MATKEY_COLOR_SPECULAR, color) == AI_SUCCESS && isNotZero(color))
@@ -325,7 +327,18 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 		aiColor3D absorption;
 		if (material->Get(AI_MATKEY_COLOR_TRANSPARENT, absorption) != AI_SUCCESS)
 			absorption = { 0.0f, 0.0f, 0.0f };
-		mat = Material::fresnel({ color.r, color.g, color.b }, refractIdx, { absorption.r, absorption.g, absorption.b }, dTexIdx, nTexIdx);
+
+		float roughness = 0.0f;
+		if (material->Get(AI_MATKEY_SHININESS, roughness) != AI_SUCCESS || roughness < 1)
+		{
+			mat = Material::fresnel({ color.r, color.g, color.b }, refractIdx, { absorption.r, absorption.g, absorption.b }, dTexIdx, nTexIdx);
+		}
+		else
+		{
+			mat = Material::fresnel({ color.r, color.g, color.b }, refractIdx, { absorption.r, absorption.g, absorption.b }, dTexIdx, nTexIdx);
+			mat.roughness = roughness;
+			mat.type = FresnelGGX;
+		}
 	}
 
 	m.materialIdx = addMaterial(mat);

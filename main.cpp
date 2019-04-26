@@ -30,6 +30,7 @@ static float movementSpeed = 1.0f;
 static Params params;
 static size_t focusedMatIdx;
 static std::tuple<Material*, microfacet::Microfacet*> focusedMat = std::make_tuple(nullptr, nullptr);
+
 #define SCRWIDTH 1280
 #define SCRHEIGHT 720
 
@@ -91,6 +92,10 @@ int main(int argc, char* argv[])
 	//triangleList.loadModel(sphere, 1.0f, glm::translate(mat4(1.0f), vec3(-4.0f, 3.7f, 0.0f)), mat);
 	//triangleList.loadModel(sphere, 1.0f, glm::translate(mat4(1.0f), vec3(-8.0f, 3.7f, 0.0f)), mat);
 
+	const auto fMat = triangleList.addMaterial(Material::fresnel(vec3(1), 1.0f));
+
+	triangleList.loadModel(sphere, 10.0f, glm::translate(mat4(1.0f), vec3(4.0f, 10.0f, 0.0f)), fMat);
+
 	//triangleList.loadModel(waterCbox);
 	//triangleList.m_Materials[4].type = Fresnel;
 	//triangleList.m_Materials[4].refractIdx = 1.5f;
@@ -121,7 +126,7 @@ int main(int argc, char* argv[])
 		rayBufferSize = width * height * 2;
 		allocateBuffers();
 		cudaRenderer.setDimensions(width, height);
-	});
+		});
 
 	if (triangleList.getPrimCount() <= 0 || triangleList.m_LightIndices.empty())
 	{
@@ -168,7 +173,7 @@ int main(int argc, char* argv[])
 				keys[event.key] = false;
 		}
 		}
-	});
+		});
 
 	cudaMalloc(&params.gpuRays, rayBufferSize * sizeof(Ray));
 	cudaMalloc(&params.gpuNextRays, rayBufferSize * sizeof(Ray));
@@ -235,6 +240,11 @@ int main(int argc, char* argv[])
 		samples = 0;
 	};
 
+	auto updateMaterials = [](int matIdx, Material * mat, microfacet::Microfacet * mfMat) {
+		cudaMemcpy(&params.gpuScene.microfacets[focusedMatIdx], mfMat, sizeof(microfacet::Microfacet), cudaMemcpyHostToDevice);
+		cudaMemcpy(&params.gpuScene.gpuMaterials[focusedMatIdx], mat, sizeof(Material), cudaMemcpyHostToDevice);
+	};
+
 	Timer t;
 	while (!shouldExit)
 	{
@@ -266,73 +276,51 @@ int main(int argc, char* argv[])
 		if (keys[GLFW_KEY_T])
 			focusedMat = getMaterialAtPixel(mbvh->m_Tree.data(), mbvh->m_PrimitiveIndices.data(), triangleList, camera, mouseX, mouseY);
 
-		Material* mat = std::get<0>(focusedMat);
-		Microfacet* mfMat = std::get<1>(focusedMat);
+		Material * mat = std::get<0>(focusedMat);
+		Microfacet * mfMat = std::get<1>(focusedMat);
 
 		if (mat != nullptr && mfMat != nullptr)
 		{
 			ImGui::BeginChild("Material");
 
+			bool updateMat = false;
 			const bool aV = mfMat->sampleVisibility;
 			const float aX = mfMat->alphaX;
 			const float aY = mfMat->alphaY;
-			const char* type;
-			if (mat->type == Light) type = "Light";
-			else if (mat->type == Lambertian) type = "Lambertian";
-			else if (mat->type == Fresnel) type = "Fresnel";
-			else if (mat->type == Specular) type = "Specular";
-			else type = "Other";
-
+			const auto matTypes = Material::getTypes();
 			static bool linkValues = false;
-			ImGui::Text("Type: %s", type);
-			ImGui::Text("Mat index: %i", focusedMatIdx);
-			if (mat->type == Light)
+
+			ImGui::Text("MatType: %i", mat->type);
+			ImGui::Text("Type: %s", Material::getTypeName(mat->type));
+
+			int matType = mat->type;
+			if (ImGui::ListBox("Type", &matType, matTypes.data(), int(matTypes.size()), 3))
 			{
-				const vec3 emOrg = mat->emission;
-				ImGui::DragFloat3("Emission", glm::value_ptr(mat->emission), 0.1f, 0.0f, 1000.0f);
-				if (!glm::all(glm::equal(emOrg, mat->emission)))
-				{
-					cudaMemcpy(&params.gpuScene.gpuMaterials[focusedMatIdx], mat, sizeof(Material), cudaMemcpyHostToDevice);
-					reset();
-				}
+				updateMat = true;
+				const std::string newType = matTypes[matType];
+				mat->changeType(newType);
 			}
+
+			updateMat |= ImGui::DragFloat("RefractIdx", &mat->refractIdx, 0.1f, 1.0f, 5.0f);
+			updateMat |= ImGui::DragFloat3("Color", glm::value_ptr(mat->albedo), 0.1f, 0.0f, 1000.0f);
+			updateMat |= ImGui::Checkbox("Link values", &linkValues);
+			updateMat |= ImGui::Checkbox("Sample Visibility", &mfMat->sampleVisibility);
+
+			if (linkValues)
+				updateMat |= ImGui::DragFloat("Roughness", &mfMat->alphaX, 0.01f, 1e-6f, 1.0f);
 			else
 			{
-				ImGui::Checkbox("Link values", &linkValues);
-				ImGui::Checkbox("Sample Visibility", &mfMat->sampleVisibility);
-				ImGui::DragFloat("Roughness X", &mfMat->alphaX, 0.001f, 1e-6f, 1.0f);
-				ImGui::DragFloat("Roughness Y", &mfMat->alphaY, 0.001f, 1e-6f, 1.0f);
-
-				const vec3 orgAlbedo = mat->albedo;
-				const vec3 orgAbsorption = mat->absorption;
-
-				if (mat->diffuseTex == -1)
-					ImGui::DragFloat3("Color", glm::value_ptr(mat->albedo), 0.1f, 0.0f, 1.0f);
-				if (mat->type == Fresnel)
-					ImGui::DragFloat3("Absorption", glm::value_ptr(mat->absorption), 0.1f, 0.0f, 100.0f);
-
-				if (!glm::all(glm::equal(orgAlbedo, mat->albedo)) || !glm::all(glm::equal(orgAbsorption, mat->absorption)))
-				{
-					cudaMemcpy(&params.gpuScene.gpuMaterials[focusedMatIdx], mat, sizeof(Material), cudaMemcpyHostToDevice);
-					reset();
-				}
+				updateMat |= ImGui::DragFloat("Roughness X", &mfMat->alphaX, 0.01f, 1e-6f, 1.0f);
+				updateMat |= ImGui::DragFloat("Roughness Y", &mfMat->alphaY, 0.01f, 1e-6f, 1.0f);
 			}
 
-			if (aX != mfMat->alphaX)
+			if (mat->type == Fresnel)
+				updateMat |= ImGui::DragFloat3("Absorption", glm::value_ptr(mat->absorption), 0.1f, 0.0f, 100.0f);
+
+			if (updateMat)
 			{
 				if (linkValues) mfMat->alphaY = mfMat->alphaX;
-				cudaMemcpy(&params.gpuScene.microfacets[focusedMatIdx], mfMat, sizeof(Microfacet), cudaMemcpyHostToDevice);
-				reset();
-			}
-			else if (aY != mfMat->alphaY)
-			{
-				if (linkValues) mfMat->alphaX = mfMat->alphaY;
-				cudaMemcpy(&params.gpuScene.microfacets[focusedMatIdx], mfMat, sizeof(Microfacet), cudaMemcpyHostToDevice);
-				reset();
-			}
-			else if (aV != mfMat->sampleVisibility)
-			{
-				cudaMemcpy(&params.gpuScene.microfacets[focusedMatIdx], mfMat, sizeof(Microfacet), cudaMemcpyHostToDevice);
+				updateMaterials(focusedMatIdx, mat, mfMat);
 				reset();
 			}
 
@@ -386,7 +374,7 @@ void allocateBuffers()
 	cuda(Memset(params.gpuScene.currentFrame, 0, params.width * params.height * sizeof(vec4)));
 }
 
-std::tuple<Material*, microfacet::Microfacet*> getMaterialAtPixel(const MBVHNode* nodes, const unsigned int* primIndices, TriangleList& tList, Camera& camera, int x, int y)
+std::tuple<Material*, microfacet::Microfacet*> getMaterialAtPixel(const MBVHNode * nodes, const unsigned int* primIndices, TriangleList & tList, Camera & camera, int x, int y)
 {
 	Ray ray = camera.GenerateRay(float(x), float(y));
 	MBVHNode::traverseMBVH(ray.origin, ray.direction, &ray.t, &ray.hit_idx, nodes, primIndices, tList);

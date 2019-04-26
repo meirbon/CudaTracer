@@ -3,18 +3,25 @@
 #define GLM_FORCE_PURE
 #include <glm/glm.hpp>
 
+#include <string>
+#include <vector>
+
 using namespace glm;
 
 enum MaterialType {
 	None = -1,
 	Light = 0,
-	Lambertian = 1,
-	Specular = 2,
-	Fresnel = 3,
+	Specular = 1,
+	Fresnel = 2,
+	Lambertian = 3,
+
 	Beckmann = 4,
-	FresnelBeckmann = 5,
-	GGX = 6,
-	FresnelGGX = 7,
+	GGX = 5,
+	Trowbridge = 6,
+
+	FresnelBeckmann = 7,
+	FresnelGGX = 8,
+	FresnelTrowbridge = 9,
 };
 
 struct Material {
@@ -78,5 +85,81 @@ struct Material {
 		mat.absorption = absorption;
 		mat.roughness = roughness;
 		return mat;
+	}
+
+	void changeType(const std::string& t)
+	{
+		if (t == "Light")
+			type = Light;
+		else if (t == "Specular")
+			type = Specular;
+		else if (t == "Fresnel")
+			type = Fresnel;
+		else if (t == "Lambertian")
+			type = Lambertian;
+		else if (t == "Beckmann")
+			type = Beckmann;
+		else if (t == "GGX")
+			type = GGX;
+		else if (t == "Trowbridge")
+			type = Trowbridge;
+		else if (t == "FresnelBeckmann")
+			type = FresnelBeckmann;
+		else if (t == "FresnelGGX")
+			type = FresnelGGX;
+		else if (t == "FresnelTrowbridge")
+			type = FresnelTrowbridge;
+	}
+
+	void changeType(MaterialType t)
+	{
+		this->type = t;
+	}
+
+	static const char* getTypeName(MaterialType type)
+	{
+		switch (type)
+		{
+		case(None):
+			return "None";
+		case(Light):
+			return "Light";
+		case(Specular):
+			return "Specular";
+		case(Fresnel):
+			return "Fresnel";
+		case(Lambertian):
+			return "Lambertian";
+		case(Beckmann):
+			return "Beckmann";
+		case(GGX):
+			return "GGX";
+		case(Trowbridge):
+			return "Trowbridge";
+		case(FresnelBeckmann):
+			return "FresnelBeckmann";
+		case(FresnelGGX):
+			return "FresnelGGX";
+		case(FresnelTrowbridge):
+			return "FresnelTrowbridge";
+		default:
+			return "Unkown";
+		}
+	}
+
+	static std::vector<const char*> getTypes()
+	{
+		return {
+			"Light\0",
+			"Specular\0",
+			"Fresnel\0",
+			"Lambertian\0",
+			"Beckmann\0",
+			"GGX\0",
+			"Trowbridge\0",
+			"FresnelBeckmann\0",
+			"FresnelGGX\0",
+			"FresnelTrowbridge\0"
+		};
 	}
 };

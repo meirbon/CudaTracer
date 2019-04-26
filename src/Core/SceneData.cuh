@@ -4,7 +4,6 @@
 #include <glm/glm.hpp>
 #include <cmath>
 #include <cuda_runtime.h>
-#include <device_functions.h>
 #include <cooperative_groups.h>
 
 #include "../Material.cuh"
