@@ -34,5 +34,10 @@ if(WIN32)
     file(COPY ${DLLS} DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
-execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink "${CMAKE_SOURCE_DIR}/Models"
-                                                           "${CMAKE_BINARY_DIR}/Models")
+add_custom_command(
+	TARGET ${PROJECT_NAME} POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E create_symlink
+		"${PROJECT_SOURCE_DIR}/Models"
+		"${CMAKE_CURRENT_BINARY_DIR}/Models"
+	DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/Models"
+)

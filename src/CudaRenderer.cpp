@@ -1,5 +1,5 @@
 #include "CudaRenderer.h"
-#include "cuda_assert.h"
+#include "CudaAssert.h"
 #include <cuda_gl_interop.h>
 
 CudaRenderer::CudaRenderer(int width, int height)

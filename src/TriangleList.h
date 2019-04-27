@@ -4,6 +4,8 @@
 #include <vector>
 #include <map>
 #include <tuple>
+#include <future>
+
 #include <glm/glm.hpp>
 
 #include <assimp/Importer.hpp>
@@ -14,6 +16,7 @@
 #include "Utils/Surface.h"
 #include "Material.cuh"
 #include "Microfacet.cuh"
+#include "Utils/ctpl.h"
 
 using namespace glm;
 
@@ -72,7 +75,10 @@ public:
 
 	int loadTexture(const std::string &path);
 private:
-	void processNode(aiNode* node, const aiScene* scene, std::vector<Mesh> &meshes, const std::string& dir);
+	std::mutex m_MaterialMutex;
+	ctpl::ThreadPool* m_Pool;
+
+	void processNode(aiNode* node, const aiScene* scene, std::vector<Mesh> &meshes, const std::string& dir, std::mutex &mMutex);
 
 	Mesh processMesh(aiMesh* mesh, const aiScene* scene, const std::string& dir);
 };

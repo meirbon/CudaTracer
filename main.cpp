@@ -15,11 +15,13 @@
 #include "src/Utils/GLFWWindow.h"
 #include "src/Core/Camera.h"
 
-#include "src/cuda_assert.h"
+#include "src/CudaAssert.h"
 #include "src/CudaRenderer.h"
 #include "src/TriangleList.h"
 
 #include "src/Utils/Timer.h"
+
+#include <future>
 
 using namespace utils;
 using namespace core;
@@ -62,7 +64,7 @@ int main(int argc, char* argv[])
 	auto triangleList = TriangleList();
 	auto* tPool = new ctpl::ThreadPool(ctpl::nr_of_cores);
 
-	const std::string sky = "Models/envmaps/pisa.png";
+	const std::string sky = "Models/envmap.hdr";
 	params.gpuScene.skyboxTexture = triangleList.loadTexture(sky);
 	params.gpuScene.skyboxEnabled = params.gpuScene.skyboxTexture >= 0;
 
@@ -246,7 +248,7 @@ int main(int argc, char* argv[])
 	};
 
 	Timer t;
-	while (!shouldExit)
+	while (!shouldExit && !window.shouldClose())
 	{
 		const int maxBufferSize = params.width * params.height;
 		const float elapsed = t.elapsed();
@@ -328,6 +330,7 @@ int main(int argc, char* argv[])
 		}
 
 		ImGui::End();
+
 		cudaRenderer.draw();
 
 		window.Present();

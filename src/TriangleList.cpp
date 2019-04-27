@@ -5,8 +5,9 @@
 
 TriangleList::TriangleList()
 {
+	m_Pool = new ctpl::ThreadPool(ctpl::nr_of_cores);
 	// Have at least 1 material
-	m_Materials.push_back(Material::lambertian(vec3(1.0f), 1.0f));
+	addMaterial(Material::lambertian(vec3(1.0f), 1.0f));
 }
 
 TriangleList::~TriangleList()
@@ -15,6 +16,8 @@ TriangleList::~TriangleList()
 	{
 		delete m_Textures[i];
 	}
+
+	delete m_Pool;
 }
 
 void TriangleList::addTriangle(vec3 p0, vec3 p1, vec3 p2, vec3 n0, vec3 n1, vec3 n2, unsigned int matIdx, vec2 t0, vec2 t1, vec2 t2)
@@ -47,34 +50,15 @@ void TriangleList::addTriangle(vec3 p0, vec3 p1, vec3 p2, vec3 n0, vec3 n1, vec3
 unsigned int TriangleList::addMaterial(Material mat)
 {
 	constexpr bool sampleVisibility = true;
-	switch (mat.type) {
-	case(Light):
-		break;
-	case(Lambertian): {
-		if (mat.roughness > 0)
-		{
-			const float alpha = microfacet::RoughnessToAlpha(mat.roughness);;
-			m_Microfacets.emplace_back(alpha, alpha, sampleVisibility);
-		}
-		else
-		{
-			// Make object rough
-			const float alpha = microfacet::RoughnessToAlpha(1000.0f);;
-			m_Microfacets.emplace_back(alpha, alpha, sampleVisibility);
-		}
-	}
-	case(Fresnel): {
-		const float alpha = microfacet::RoughnessToAlpha(mat.roughness);;
-		m_Microfacets.emplace_back(alpha, alpha, sampleVisibility);
-	}
-	case(Specular): {
-		const float alpha = microfacet::RoughnessToAlpha(mat.roughness);;
-		m_Microfacets.emplace_back(alpha, alpha, sampleVisibility);
-	}
-	}
+
+	const float alpha = max(0.0f, microfacet::RoughnessToAlpha(mat.roughness));
+	m_Microfacets.emplace_back(alpha, alpha, sampleVisibility);
 
 	const unsigned int m = static_cast<unsigned int>(m_Materials.size());
+
+	m_MaterialMutex.lock();
 	m_Materials.push_back(mat);
+	m_MaterialMutex.unlock();
 	return m;
 }
 
@@ -104,7 +88,9 @@ void TriangleList::loadModel(const std::string & path, float scale, mat4 mat, in
 	std::vector<TriangleList::Mesh> meshes = {};
 
 	std::string directory = path.substr(0, path.find_last_of('/'));
-	processNode(scene->mRootNode, scene, meshes, directory);
+	std::mutex meshMutex{};
+
+	processNode(scene->mRootNode, scene, meshes, directory, meshMutex);
 
 	unsigned int offset = m_Vertices.size();
 
@@ -185,18 +171,27 @@ TriangleList::GPUTextures TriangleList::createTextureBuffer()
 	return buffer;
 }
 
-void TriangleList::processNode(aiNode * node, const aiScene * scene, std::vector<Mesh> & meshes, const std::string & dir)
+void TriangleList::processNode(aiNode * node, const aiScene * scene, std::vector<Mesh> & meshes, const std::string & dir, std::mutex & mMutex)
 {
+	std::vector<std::future<void>> meshResults;
+
 	for (unsigned int i = 0; i < node->mNumMeshes; i++)
 	{
-		aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-		meshes.push_back(processMesh(mesh, scene, dir));
+		meshResults.push_back(m_Pool->push([this, i, &mMutex, &meshes, scene, node, &dir](int) {
+			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+			auto m = processMesh(mesh, scene, dir);
+			mMutex.lock();
+			meshes.push_back(m);
+			mMutex.unlock();
+			})
+		);
 	}
 
 	for (unsigned int i = 0; i < node->mNumChildren; i++)
-	{
-		processNode(node->mChildren[i], scene, meshes, dir);
-	}
+		processNode(node->mChildren[i], scene, meshes, dir, mMutex);
+
+	for (auto& r : meshResults)
+		r.get();
 }
 
 TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scene, const std::string & dir)

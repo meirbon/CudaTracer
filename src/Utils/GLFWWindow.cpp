@@ -4,9 +4,9 @@
 
 namespace utils
 {
-	GLFWWindow *instance;
+	GLFWWindow* instance;
 
-	GLFWWindow::GLFWWindow(const char *title, int width, int height, bool fullscreen, bool lockMouse)
+	GLFWWindow::GLFWWindow(const char* title, int width, int height, bool fullscreen, bool lockMouse)
 		: Window(title, width, height), m_IsFullscreen(fullscreen)
 	{
 		instance = this;
@@ -26,7 +26,7 @@ namespace utils
 		if (fullscreen)
 		{
 			m_Monitor = glfwGetPrimaryMonitor();
-			const GLFWvidmode *mode = glfwGetVideoMode(m_Monitor);
+			const GLFWvidmode* mode = glfwGetVideoMode(m_Monitor);
 			glfwWindowHint(GLFW_RED_BITS, mode->redBits);
 			glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
 			glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
@@ -94,7 +94,7 @@ namespace utils
 		glfwSetWindowSize(m_Window, m_Width, m_Height);
 	}
 
-	void GLFWWindow::SetTitle(const char *title)
+	void GLFWWindow::SetTitle(const char* title)
 	{
 		m_Title = title;
 		glfwSetWindowTitle(m_Window, title);
@@ -117,6 +117,11 @@ namespace utils
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
+	}
+
+	bool GLFWWindow::shouldClose()
+	{
+		return glfwWindowShouldClose(m_Window);
 	}
 
 	int GLFWWindow::GetWidth()
@@ -150,7 +155,7 @@ namespace utils
 			glfwGetWindowSize(m_Window, &m_Width, &m_Height);
 
 			m_Monitor = glfwGetPrimaryMonitor();
-			const GLFWvidmode *mode = glfwGetVideoMode(m_Monitor);
+			const GLFWvidmode* mode = glfwGetVideoMode(m_Monitor);
 			m_OnResizeCallback(mode->width, mode->height);
 
 			glfwSetWindowMonitor(m_Window, m_Monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
@@ -164,18 +169,15 @@ namespace utils
 		}
 	}
 
-	void GLFWWindow::FramebufferSizeCallback(GLFWwindow *window, int width, int height)
+	void GLFWWindow::FramebufferSizeCallback(GLFWwindow * window, int width, int height)
 	{
 		instance->m_OnResizeCallback(width, height);
 	}
 
-	void GLFWWindow::InputCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+	void GLFWWindow::InputCallback(GLFWwindow * window, int key, int scancode, int action, int mods)
 	{
-		Event event;
-		if (glfwWindowShouldClose(window))
-			event.type = CLOSED;
-		else
-			event.type = KEY;
+		Event event{};
+		event.type = KEY;
 
 		event.key = key;
 		if (action == GLFW_PRESS)
@@ -186,12 +188,12 @@ namespace utils
 		instance->m_OnEventCallback(event);
 	}
 
-	void GLFWWindow::ErrorCallback(int code, const char *error)
+	void GLFWWindow::ErrorCallback(int code, const char* error)
 	{
 		std::cout << "ERROR (" << code << "): " << error << std::endl;
 	}
 
-	void GLFWWindow::MouseCallback(GLFWwindow *window, double xPos, double yPos)
+	void GLFWWindow::MouseCallback(GLFWwindow * window, double xPos, double yPos)
 	{
 		Event event;
 		event.type = MOUSE;
@@ -220,7 +222,7 @@ namespace utils
 		instance->m_OnEventCallback(event);
 	}
 
-	void GLFWWindow::MouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
+	void GLFWWindow::MouseButtonCallback(GLFWwindow * window, int button, int action, int mods)
 	{
 		Event event;
 		event.type = MOUSE;
@@ -230,7 +232,7 @@ namespace utils
 		instance->m_OnEventCallback(event);
 	}
 
-	void GLFWWindow::MouseScrollCallback(GLFWwindow *window, double xOffset, double yOffset)
+	void GLFWWindow::MouseScrollCallback(GLFWwindow * window, double xOffset, double yOffset)
 	{
 		Event event;
 		event.type = MOUSE;
@@ -242,5 +244,5 @@ namespace utils
 		instance->m_OnEventCallback(event);
 	}
 
-	void GLFWWindow::Clear(const glm::vec4 &color) { glClearColor(color.x, color.y, color.z, color.w); }
+	void GLFWWindow::Clear(const glm::vec4 & color) { glClearColor(color.x, color.y, color.z, color.w); }
 } // namespace utils

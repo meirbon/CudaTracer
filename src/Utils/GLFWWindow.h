@@ -48,6 +48,8 @@ namespace utils
 			return m_Window;
 		}
 
+		bool shouldClose();
+
 		int GetWidth() override;
 		int GetHeight() override;
 

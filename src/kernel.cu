@@ -5,8 +5,8 @@
 #include <cuda_surface_types.h>
 #include <device_launch_parameters.h>
 
-#include "cuda_definitions.h"
-#include "cuda_assert.h"
+#include "CudaDefinitions.h"
+#include "CudaAssert.h"
 
 #include "Core/SceneData.cuh"
 #include "BVH/MBVHNode.cuh"
@@ -725,16 +725,13 @@ cudaError launchKernels(cudaArray_const_t array, Params & params, int samples, i
 
 	vec3 hor, ver;
 
+	const float dist = camera->GetFOVDistance();
+	hor = u * dist;
+	ver = v * dist;
 	if (params.width > params.height)
-	{
-		hor = u * camera->GetFOVDistance() * float(params.width) / float(params.height);
-		ver = v * camera->GetFOVDistance();
-	}
+		hor *= float(params.width) / float(params.height);
 	else
-	{
-		hor = u * camera->GetFOVDistance();
-		ver = v * camera->GetFOVDistance() * float(params.height) / float(params.width);
-	}
+		ver *= float(params.height) / float(params.width);
 
 	if (samples == 0)
 		cuda(MemcpyToSymbol(primary_ray_cnt, &samples, sizeof(int)));

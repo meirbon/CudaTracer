@@ -3,7 +3,7 @@
 
 namespace core
 {
-	Surface::Surface(int width, int height, Pixel *buffer, int pitch)
+	Surface::Surface(int width, int height, Pixel* buffer, int pitch)
 		: m_Buffer(buffer), m_Width(width), m_Height(height), m_Pitch(pitch)
 	{
 		m_Flags = 0;
@@ -15,13 +15,13 @@ namespace core
 		m_Flags = OWNER;
 	}
 
-	Surface::Surface(const char *file) : m_Buffer(nullptr), m_Width(0), m_Height(0)
+	Surface::Surface(const char* file) : m_Buffer(nullptr), m_Width(0), m_Height(0)
 	{
-		FILE *f = fopen(file, "rb");
+		FILE* f = fopen(file, "rb");
 		if (!f)
 		{
 			std::string t = std::string("File not found: ") + file;
-			const char *msg = t.c_str();
+			const char* msg = t.c_str();
 			std::cout << msg << std::endl;
 			throw std::runtime_error(msg);
 		}
@@ -30,40 +30,73 @@ namespace core
 		LoadImage(file);
 	}
 
-	void Surface::LoadImage(const char *file)
+	void Surface::LoadImage(const char* file)
 	{
 		FREE_IMAGE_FORMAT fif = FIF_UNKNOWN;
 		fif = FreeImage_GetFileType(file, 0);
 		if (fif == FIF_UNKNOWN)
-		{
 			fif = FreeImage_GetFIFFromFilename(file);
-		}
 
-		FIBITMAP *tmp = FreeImage_Load(fif, file);
-		FIBITMAP *dib = FreeImage_ConvertTo32Bits(tmp);
-		FreeImage_Unload(tmp);
-
-		m_Width = m_Pitch = FreeImage_GetWidth(dib);
-		m_Height = FreeImage_GetHeight(dib);
-		m_Buffer = new Pixel[m_Width * m_Height];
-		m_TexBuffer = new glm::vec4[m_Width * m_Height];
-		m_Flags = OWNER;
-
-		for (auto y = 0; y < m_Height; y++)
+		if (fif == FIF_HDR)
 		{
-			for (auto x = 0; x < m_Width; x++)
-			{
-				RGBQUAD quad;
-				FreeImage_GetPixelColor(dib, x, y, &quad);
-				const unsigned int red = (unsigned int)(quad.rgbRed);
-				const unsigned int green = (unsigned int)(quad.rgbGreen);
-				const unsigned int blue = (unsigned int)(quad.rgbBlue);
-				m_Buffer[x + y * m_Width] = (red << 0) | (green << 8) | (blue << 16);
-				m_TexBuffer[x + y * m_Width] = glm::vec4(float(red) / 255.0f, float(green) / 255.0f, float(blue) / 255.0f, 1.0f);
-			}
-		}
+			FIBITMAP* tmp = FreeImage_Load(fif, file);
+			FIBITMAP* dib = FreeImage_ConvertToRGBAF(tmp);
 
-		FreeImage_Unload(dib);
+			m_Width = m_Pitch = FreeImage_GetWidth(dib);
+			m_Height = FreeImage_GetHeight(dib);
+			m_Buffer = new Pixel[m_Width * m_Height];
+
+			m_TexBuffer.clear();
+			m_TexBuffer.reserve(m_Width * m_Height);
+			m_Flags = OWNER;
+
+			for (int y = 0; y < m_Height; y++)
+			{
+				const FIRGBAF* bits = (FIRGBAF*)FreeImage_GetScanLine(dib, y);
+				for (int x = 0; x < m_Width; x++)
+				{
+					const glm::vec4 color = { bits[x].red, bits[x].green, bits[x].blue, bits[x].alpha };
+					const unsigned int red = glm::clamp(bits[x].red, 0.0f, 1.0f) * 255;
+					const unsigned int green = glm::clamp(bits[x].green, 0.0f, 1.0f) * 255;
+					const unsigned int blue = glm::clamp(bits[x].blue, 0.0f, 1.0f) * 255;
+					const unsigned int alpha = glm::clamp(bits[x].alpha, 0.0f, 1.0f) * 255;
+
+					m_Buffer[x + y * m_Width] = (red << 0) | (green << 8) | (blue << 16) | (alpha << 24);
+					m_TexBuffer.push_back(color);
+				}
+			}
+
+			FreeImage_Unload(dib);
+		}
+		else
+		{
+			FIBITMAP* tmp = FreeImage_Load(fif, file);
+			FIBITMAP* dib = FreeImage_ConvertTo32Bits(tmp);
+			FreeImage_Unload(tmp);
+
+			m_Width = m_Pitch = FreeImage_GetWidth(dib);
+			m_Height = FreeImage_GetHeight(dib);
+			m_Buffer = new Pixel[m_Width * m_Height];
+
+			m_TexBuffer.clear();
+			m_TexBuffer.reserve(m_Width * m_Height);
+			m_Flags = OWNER;
+
+			for (int y = 0; y < m_Height; y++)
+			{
+				for (int x = 0; x < m_Width; x++)
+				{
+					RGBQUAD quad;
+					FreeImage_GetPixelColor(dib, x, y, &quad);
+					const unsigned int red = (unsigned int)(quad.rgbRed);
+					const unsigned int green = (unsigned int)(quad.rgbGreen);
+					const unsigned int blue = (unsigned int)(quad.rgbBlue);
+					m_Buffer[x + y * m_Width] = (red << 0) | (green << 8) | (blue << 16);
+					m_TexBuffer.emplace_back(float(red) / 255.0f, float(green) / 255.0f, float(blue) / 255.0f, 1.0f);
+				}
+			}
+			FreeImage_Unload(dib);
+		}
 	}
 
 	Surface::~Surface()
@@ -72,11 +105,9 @@ namespace core
 		{
 			delete[] m_Buffer;
 		}
-
-		delete m_TexBuffer;
 	}
 
-	void Surface::SetBuffer(Pixel *buffer)
+	void Surface::SetBuffer(Pixel * buffer)
 	{
 		if (m_Flags == OWNER)
 		{
@@ -94,9 +125,9 @@ namespace core
 			m_Buffer[i] = color;
 	}
 
-	void Surface::Resize(Surface *original)
+	void Surface::Resize(Surface * original)
 	{
-		Pixel *src = original->GetBuffer(), *dst = m_Buffer;
+		Pixel* src = original->GetBuffer(), * dst = m_Buffer;
 		int u, v, owidth = original->GetWidth(), oheight = original->GetHeight();
 		int dx = (owidth << 10) / m_Width, dy = (oheight << 10) / m_Height;
 		for (v = 0; v < m_Height; v++)
@@ -104,7 +135,7 @@ namespace core
 			for (u = 0; u < m_Width; u++)
 			{
 				int su = u * dx, sv = v * dy;
-				Pixel *s = src + (su >> 10) + (sv >> 10) * owidth;
+				Pixel* s = src + (su >> 10) + (sv >> 10) * owidth;
 				int ufrac = su & 1023, vfrac = sv & 1023;
 				int w4 = (ufrac * vfrac) >> 12;
 				int w3 = ((1023 - ufrac) * vfrac) >> 12;
@@ -135,7 +166,7 @@ namespace core
 		return m_TexBuffer[xValue + yValue * m_Pitch];
 	}
 
-	const glm::vec3 Surface::GetColorAt(const float &x, const float &y) const
+	const glm::vec3 Surface::GetColorAt(const float& x, const float& y) const
 	{
 		const int yValue = (int)glm::max(0, (int)(glm::min(y, 1.f) * m_Height) - 1);
 		const int xValue = (int)glm::max(0, (int)(glm::min(x, 1.f) * m_Width) - 1);
@@ -198,7 +229,7 @@ namespace core
 
 	void Surface::Plot(int x, int y, Pixel c) { m_Buffer[x + y * m_Pitch] = c; }
 
-	void Surface::Plot(int x, int y, const glm::vec3 &color)
+	void Surface::Plot(int x, int y, const glm::vec3 & color)
 	{
 		glm::vec3 col = glm::sqrt(glm::clamp(color, 0.0f, 1.0f)) * 255.99f;
 		const unsigned int red = (unsigned int)(col.r);
@@ -217,7 +248,7 @@ namespace core
 
 	void Surface::Bar(int x1, int y1, int x2, int y2, Pixel c)
 	{
-		Pixel *a = x1 + y1 * m_Pitch + m_Buffer;
+		Pixel* a = x1 + y1 * m_Pitch + m_Buffer;
 		for (int y = y1; y <= y2; y++)
 		{
 			for (int x = 0; x <= (x2 - x1); x++)
@@ -226,10 +257,10 @@ namespace core
 		}
 	}
 
-	void Surface::CopyTo(Surface *destination, int a_X, int a_Y)
+	void Surface::CopyTo(Surface * destination, int a_X, int a_Y)
 	{
-		Pixel *dst = destination->GetBuffer();
-		Pixel *src = m_Buffer;
+		Pixel* dst = destination->GetBuffer();
+		Pixel* src = m_Buffer;
 		if ((src) && (dst))
 		{
 			int srcwidth = m_Width;
@@ -259,10 +290,10 @@ namespace core
 		}
 	}
 
-	void Surface::BlendCopyTo(Surface *destination, int X, int Y)
+	void Surface::BlendCopyTo(Surface * destination, int X, int Y)
 	{
-		Pixel *dst = destination->GetBuffer();
-		Pixel *src = m_Buffer;
+		Pixel* dst = destination->GetBuffer();
+		Pixel* src = m_Buffer;
 		if ((src) && (dst))
 		{
 			int srcwidth = m_Width;
@@ -305,11 +336,11 @@ namespace core
 		}
 	}
 
-	glm::vec4 *Surface::GetTextureBuffer() { return m_TexBuffer; }
+	glm::vec4 * Surface::GetTextureBuffer() { return m_TexBuffer.data(); }
 
-	Sprite::Sprite(Surface *output, unsigned int numFrames)
+	Sprite::Sprite(Surface * output, unsigned int numFrames)
 		: m_Width(output->GetWidth() / numFrames), m_Height(output->GetHeight()), m_Pitch(output->GetWidth()),
-		m_NumFrames(numFrames), m_CurrentFrame(0), m_Flags(0), m_Start(new unsigned int *[numFrames]), m_Surface(output)
+		m_NumFrames(numFrames), m_CurrentFrame(0), m_Flags(0), m_Start(new unsigned int* [numFrames]), m_Surface(output)
 	{
 		InitializeStartData();
 	}
@@ -322,7 +353,7 @@ namespace core
 		delete[] m_Start;
 	}
 
-	void Sprite::Draw(Surface *output, int X, int Y)
+	void Sprite::Draw(Surface * output, int X, int Y)
 	{
 		if ((X < -m_Width) || (X > (output->GetWidth() + m_Width)))
 			return;
@@ -330,7 +361,7 @@ namespace core
 			return;
 		int x1 = X, x2 = X + m_Width;
 		int y1 = Y, y2 = Y + m_Height;
-		Pixel *src = GetBuffer() + m_CurrentFrame * m_Width;
+		Pixel * src = GetBuffer() + m_CurrentFrame * m_Width;
 		if (x1 < 0)
 		{
 			src += -x1;
@@ -345,7 +376,7 @@ namespace core
 		}
 		if (y2 > output->GetHeight())
 			y2 = output->GetHeight();
-		Pixel *dest = output->GetBuffer();
+		Pixel* dest = output->GetBuffer();
 		int xs;
 		const int dpitch = output->GetPitch();
 		if ((x2 > x1) && (y2 > y1))
@@ -377,7 +408,7 @@ namespace core
 					{
 						const Pixel c1 = *(src + x);
 						if (c1 & 0xffffff)
-							*(dest + addr + x) = c1;
+							* (dest + addr + x) = c1;
 					}
 				}
 				addr += dpitch;
@@ -386,7 +417,7 @@ namespace core
 		}
 	}
 
-	void Sprite::DrawScaled(int X, int Y, int width, int height, Surface *output)
+	void Sprite::DrawScaled(int X, int Y, int width, int height, Surface * output)
 	{
 		if ((width == 0) || (height == 0))
 			return;
@@ -409,7 +440,7 @@ namespace core
 			for (int y = 0; y < m_Height; ++y)
 			{
 				m_Start[f][y] = m_Width;
-				Pixel *addr = GetBuffer() + f * m_Width + y * m_Pitch;
+				Pixel* addr = GetBuffer() + f * m_Width + y * m_Pitch;
 				for (int x = 0; x < m_Width; ++x)
 				{
 					if (addr[x])

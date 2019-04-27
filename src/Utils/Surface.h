@@ -3,6 +3,7 @@
 #include <FreeImage.h>
 #include <glm/glm.hpp>
 #include <string>
+#include <vector>
 
 namespace core
 {
@@ -49,25 +50,25 @@ namespace core
 
 	public:
 		// constructor / destructor
-		Surface(int a_Width, int a_Height, Pixel *a_Buffer, int a_Pitch);
+		Surface(int a_Width, int a_Height, Pixel* a_Buffer, int a_Pitch);
 
 		Surface(int a_Width, int a_Height);
 
-		Surface(const char *a_File);
+		Surface(const char* a_File);
 
 		~Surface();
 
 		// member data access
-		Pixel *GetBuffer() { return m_Buffer; }
-		glm::vec4 *GetTextureBuffer();
+		Pixel* GetBuffer() { return m_Buffer; }
+		glm::vec4* GetTextureBuffer();
 
-		void SetBuffer(Pixel *a_Buffer);
+		void SetBuffer(Pixel* a_Buffer);
 
-		const int &GetWidth() const { return m_Width; }
+		const int& GetWidth() const { return m_Width; }
 
-		const int &GetHeight() const { return m_Height; }
+		const int& GetHeight() const { return m_Height; }
 
-		const int &GetPitch() { return m_Pitch; }
+		const int& GetPitch() { return m_Pitch; }
 
 		void SetPitch(int a_Pitch) { m_Pitch = a_Pitch; }
 
@@ -76,13 +77,13 @@ namespace core
 		void Line(float x1, float y1, float x2, float y2, Pixel color);
 
 		void Plot(int x, int y, Pixel c);
-		void Plot(int x, int y, const glm::vec3 &color);
+		void Plot(int x, int y, const glm::vec3& color);
 
-		void LoadImage(const char *a_File);
+		void LoadImage(const char* a_File);
 
-		void CopyTo(Surface *a_Dst, int a_X, int a_Y);
+		void CopyTo(Surface* a_Dst, int a_X, int a_Y);
 
-		void BlendCopyTo(Surface *a_Dst, int a_X, int a_Y);
+		void BlendCopyTo(Surface* a_Dst, int a_X, int a_Y);
 
 		void ScaleColor(unsigned int a_Scale);
 
@@ -90,16 +91,16 @@ namespace core
 
 		void Bar(int x1, int y1, int x2, int y2, Pixel color);
 
-		void Resize(Surface *a_Orig);
+		void Resize(Surface* a_Orig);
 
 		const glm::vec3 GetColorAt(glm::vec2 texCoords) const;
 
-		const glm::vec3 GetColorAt(const float &x, const float &y) const;
+		const glm::vec3 GetColorAt(const float& x, const float& y) const;
 
 	private:
 		// Attributes
-		Pixel *m_Buffer;
-		glm::vec4 *m_TexBuffer = nullptr;
+		Pixel* m_Buffer;
+		std::vector<glm::vec4> m_TexBuffer;
 		int m_Width, m_Height;
 		int m_Pitch;
 		int m_Flags;
@@ -123,13 +124,13 @@ namespace core
 			NOCLIP = (1 << 14)
 		};
 
-		Sprite(Surface *a_Surface, unsigned int a_NumFrames);
+		Sprite(Surface * a_Surface, unsigned int a_NumFrames);
 
 		~Sprite();
 
-		void Draw(Surface *a_Target, int a_X, int a_Y);
+		void Draw(Surface * a_Target, int a_X, int a_Y);
 
-		void DrawScaled(int a_X, int a_Y, int a_Width, int a_Height, Surface *a_Target);
+		void DrawScaled(int a_X, int a_Y, int a_Width, int a_Height, Surface * a_Target);
 
 		void SetFlags(unsigned int a_Flags) { m_Flags = a_Flags; }
 
@@ -141,11 +142,11 @@ namespace core
 
 		int GetHeight() { return m_Height; }
 
-		Pixel *GetBuffer() { return m_Surface->GetBuffer(); }
+		Pixel* GetBuffer() { return m_Surface->GetBuffer(); }
 
 		unsigned int Frames() { return m_NumFrames; }
 
-		Surface *GetSurface() { return m_Surface; }
+		Surface* GetSurface() { return m_Surface; }
 
 		std::string type;
 		std::string path;
@@ -159,7 +160,7 @@ namespace core
 		unsigned int m_NumFrames;
 		unsigned int m_CurrentFrame;
 		unsigned int m_Flags;
-		unsigned int **m_Start;
-		Surface *m_Surface;
+		unsigned int** m_Start;
+		Surface* m_Surface;
 	};
 } // namespace core
