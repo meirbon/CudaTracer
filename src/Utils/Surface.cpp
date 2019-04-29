@@ -1,5 +1,7 @@
 #include "Surface.h"
+
 #include <iostream>
+#include <fstream>
 
 namespace core
 {
@@ -11,22 +13,21 @@ namespace core
 
 	Surface::Surface(int width, int height) : m_Width(width), m_Height(height), m_Pitch(width)
 	{
-		m_Buffer = new Pixel[width * height];
+		m_Buffer = new Pixel[size_t(width * height)];
 		m_Flags = OWNER;
 	}
 
 	Surface::Surface(const char* file) : m_Buffer(nullptr), m_Width(0), m_Height(0)
 	{
-		FILE* f = fopen(file, "rb");
-		if (!f)
+		std::ifstream f(file);
+		if (!f.is_open())
 		{
 			std::string t = std::string("File not found: ") + file;
 			const char* msg = t.c_str();
 			std::cout << msg << std::endl;
 			throw std::runtime_error(msg);
 		}
-		else
-			fclose(f);
+
 		LoadImage(file);
 	}
 

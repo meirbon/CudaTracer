@@ -1,15 +1,16 @@
 #pragma once
 
-#include <cuda_runtime.h>
 
 #include <GL/glew.h>
 #define GLM_FORCE_PURE
 #include <glm/glm.hpp>
 
+#include <cuda_runtime.h>
+
 #include <cstdio>
 
-#include "../Material.cuh"
-#include "Random.cuh"
+#include "Core/Material.cuh"
+#include "Core/Random.cuh"
 
 #define MAX_DISTANCE 1e34f
 

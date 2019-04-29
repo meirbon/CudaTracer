@@ -26,11 +26,11 @@ namespace microfacet
 	}
 
 	__device__ __host__ inline vec3 SphericalDirection(float sinTheta, float cosTheta, float phi,
-		const vec3 &x, const vec3 &y,
-		const vec3 &z
+		const vec3 & x, const vec3 & y,
+		const vec3 & z
 	)
 	{
-		return sinTheta * cosf(phi) * x + sinTheta * sinf(phi) * y + cosTheta * z;
+		return sinTheta * cosf(phi)* x + sinTheta * sinf(phi) * y + cosTheta * z;
 	}
 
 	__device__ __host__ inline float ErfInv(float x) {
@@ -81,40 +81,40 @@ namespace microfacet
 		return sign * y;
 	}
 
-	__device__ __host__ inline float CosTheta(const vec3 &w) { return w.z; }
+	__device__ __host__ inline float CosTheta(const vec3 & w) { return w.z; }
 
-	__device__ __host__ inline float Cos2Theta(const vec3 &w) { return w.z * w.z; }
+	__device__ __host__ inline float Cos2Theta(const vec3 & w) { return w.z* w.z; }
 
-	__device__ __host__ inline float AbsCosTheta(const vec3 &w) { return fabs(w.z); }
+	__device__ __host__ inline float AbsCosTheta(const vec3 & w) { return fabs(w.z); }
 
-	__device__ __host__ inline float Sin2Theta(const vec3 &w)
+	__device__ __host__ inline float Sin2Theta(const vec3 & w)
 	{
 		return glm::max(0.f, 1.f - Cos2Theta(w));
 	}
 
-	__device__ __host__ inline float SinTheta(const vec3 &w) { return std::sqrt(Sin2Theta(w)); }
+	__device__ __host__ inline float SinTheta(const vec3 & w) { return std::sqrt(Sin2Theta(w)); }
 
-	__device__ __host__ inline float TanTheta(const vec3 &w) { return SinTheta(w) / CosTheta(w); }
+	__device__ __host__ inline float TanTheta(const vec3 & w) { return SinTheta(w) / CosTheta(w); }
 
-	__device__ __host__ inline float Tan2Theta(const vec3 &w) {
+	__device__ __host__ inline float Tan2Theta(const vec3 & w) {
 		return Sin2Theta(w) / Cos2Theta(w);
 	}
 
-	__device__ __host__ inline float CosPhi(const vec3 &w) {
+	__device__ __host__ inline float CosPhi(const vec3 & w) {
 		float sinTheta = SinTheta(w);
 		return (sinTheta == 0) ? 1 : glm::clamp(w.x / sinTheta, -1.f, 1.f);
 	}
 
-	__device__ __host__ inline float SinPhi(const vec3 &w) {
+	__device__ __host__ inline float SinPhi(const vec3 & w) {
 		float sinTheta = SinTheta(w);
 		return (sinTheta == 0) ? 0 : glm::clamp(w.y / sinTheta, -1.f, 1.f);
 	}
 
-	__device__ __host__ inline float Cos2Phi(const vec3 &w) { return CosPhi(w) * CosPhi(w); }
+	__device__ __host__ inline float Cos2Phi(const vec3 & w) { return CosPhi(w)* CosPhi(w); }
 
-	__device__ __host__ inline float Sin2Phi(const vec3 &w) { return SinPhi(w) * SinPhi(w); }
+	__device__ __host__ inline float Sin2Phi(const vec3 & w) { return SinPhi(w)* SinPhi(w); }
 
-	__device__ __host__ inline float CosDPhi(const vec3 &wa, const vec3 &wb) {
+	__device__ __host__ inline float CosDPhi(const vec3 & wa, const vec3 & wb) {
 		return glm::clamp(
 			(wa.x * wb.x + wa.y * wb.y) / sqrtf((wa.x * wa.x + wa.y * wa.y) *
 			(wb.x * wb.x + wb.y * wb.y)),
@@ -126,7 +126,7 @@ namespace microfacet
 		return 1.0f / (1.0f + lambda_w);
 	}
 
-	__device__ __host__ inline float D(const vec3 &wh, float alphay, float alphax)
+	__device__ __host__ inline float D(const vec3 & wh, float alphay, float alphax)
 	{
 		const float tan2Theta = Tan2Theta(wh);
 		if ((2.0f * tan2Theta) == tan2Theta) return 0.f;
@@ -138,7 +138,7 @@ namespace microfacet
 			(glm::pi<float>() * alphax * alphay * cos4Theta);
 	}
 
-	__device__ __host__ inline void BeckmannSample11(float cosThetaI, float r1, float r2, float *slope_x, float *slope_y) {
+	__device__ __host__ inline void BeckmannSample11(float cosThetaI, float r1, float r2, float* slope_x, float* slope_y) {
 		/* Special case (normal incidence) */
 		if (cosThetaI > .9999f) {
 			const float r = sqrtf(-std::log(1.0f - r1));
@@ -208,7 +208,7 @@ namespace microfacet
 		*slope_y = ErfInv(2.0f * glm::max(r2, (float)1e-6f) - 1.0f);
 	}
 
-	__device__ __host__ inline vec3 BeckmannSample(const vec3 &wi, float alpha_x, float alpha_y, float r1, float r2) {
+	__device__ __host__ inline vec3 BeckmannSample(const vec3 & wi, float alpha_x, float alpha_y, float r1, float r2) {
 		// 1. stretch wi
 		vec3 wiStretched = normalize(vec3(alpha_x * wi.x, alpha_y * wi.y, wi.z));
 
@@ -230,7 +230,7 @@ namespace microfacet
 	}
 
 	__device__ __host__ inline void TrowbridgeReitzSample11(float cosTheta, float r1, float r2,
-		float *slope_x, float *slope_y) {
+		float* slope_x, float* slope_y) {
 		// special case (normal incidence)
 		if (cosTheta > .9999f) {
 			float r = sqrtf(r1 / (1 - r1));
@@ -271,7 +271,7 @@ namespace microfacet
 		*slope_y = S * z * sqrtf(1.f + *slope_x * *slope_x);
 	}
 
-	__device__ __host__ inline vec3 TrowbridgeReitzSample(const vec3 &wi, float alpha_x, float alpha_y, float r1, float r2) {
+	__device__ __host__ inline vec3 TrowbridgeReitzSample(const vec3 & wi, float alpha_x, float alpha_y, float r1, float r2) {
 		// 1. stretch wi
 		const vec3 wiStretched = normalize(vec3(alpha_x * wi.x, alpha_y * wi.y, wi.z));
 
@@ -289,7 +289,7 @@ namespace microfacet
 		slope_y = alpha_y * slope_y;
 
 		// 5. compute normal
-		return normalize(vec3(-slope_x, -slope_y, 1.));
+		return normalize(vec3(-slope_x, -slope_y, 1.f));
 	}
 
 	struct Microfacet
@@ -301,13 +301,18 @@ namespace microfacet
 			this->sampleVisibility = visibility;
 		}
 
-		float alphaX, alphaY;
+		union {
+			vec2 alpha;
+			struct {
+				float alphaX, alphaY;
+			};
+		};
 		bool sampleVisibility;
 
-		__device__ __host__ inline static void sampleGGX_P22_11(float cosThetaI, float *slopex, float *slopey, float r1, float r2) {
+		__device__ __host__ inline static void sampleGGX_P22_11(float cosThetaI, float* slopex, float* slopey, float r1, float r2) {
 			// The special case where the ray comes from normal direction
-			// The following sampling is equivarent to the sampling of
-			// microfacet normals (not slopes) on isotropic rough surface
+			// The following sampling is equivalent to the sampling of
+			// micro facet normals (not slopes) on isotropic rough surface
 			if (cosThetaI > 0.9999f) {
 				const float r = sqrtf(r1 / (1.0f - r1));
 				const float sinPhi = std::sin(glm::two_pi<float>() * r2);
@@ -322,7 +327,7 @@ namespace microfacet
 			const float a = 1.0f / tanThetaI;
 			const float G1 = 2.0f / (1.0f + sqrtf(1.0f + 1.0f / (a * a)));
 
-			// Sample slopex
+			// Sample slope x
 			const float A = 2.0f * r1 / G1 - 1.0f;
 			const float B = tanThetaI;
 			const float tmp = min(1.0f / (A * A - 1.0f), 1.0e12f);
@@ -332,7 +337,7 @@ namespace microfacet
 			const float slopex2 = B * tmp + D;
 			*slopex = (A < 0.0f || slopex2 > 1.0f / tanThetaI) ? slopex1 : slopex2;
 
-			// Sample slopey
+			// Sample slope y
 			float S;
 			if (r2 > 0.5f)
 				S = 1.0f, r2 = 2.0f * (r2 - 0.5f);
@@ -344,7 +349,7 @@ namespace microfacet
 			*slopey = S * z * sqrtf(1.0f + (*slopex) * (*slopex));
 		}
 
-		__device__ __host__ inline static vec3 sampleGGX(const vec3&wi, float alphaX, float alphaY, float r1, float r2) {
+		__device__ __host__ inline static vec3 sampleGGX(const vec3 & wi, float alphaX, float alphaY, float r1, float r2) {
 			// 1. stretch wi
 			const vec3 wiStretched = normalize(vec3(alphaX * wi.x, alphaY * wi.y, wi.z));
 
@@ -366,7 +371,7 @@ namespace microfacet
 		}
 
 		// GGX
-		__device__ __host__ inline vec3 sample_ggx(const vec3& wo, float r1, float r2) const
+		__device__ __host__ inline vec3 sample_ggx(const vec3 & wo, float r1, float r2) const
 		{
 			if (!sampleVisibility)
 			{
@@ -407,7 +412,7 @@ namespace microfacet
 			}
 		}
 
-		__device__ __host__ inline float lambda_ggx(const glm::vec3 &wo) const
+		__device__ __host__ inline float lambda_ggx(const glm::vec3 & wo) const
 		{
 			const float absTanThetaO = fabs(TanTheta(wo));
 			if (2.0f * absTanThetaO == absTanThetaO)
@@ -418,7 +423,7 @@ namespace microfacet
 			return (-1.0f + sqrtf(1.0f + alpha2Tan2Theta)) / 2.0f;
 		}
 
-		__device__ __host__ inline float pdf_ggx(const vec3& wo, const vec3& wi, const vec3& wm) const
+		__device__ __host__ inline float pdf_ggx(const vec3 & wo, const vec3 & wi, const vec3 & wm) const
 		{
 			if (!sampleVisibility)
 			{
@@ -431,7 +436,7 @@ namespace microfacet
 		}
 
 		// BECKMANN
-		__device__ __host__ vec3 sample_beckmann(const glm::vec3 &wo, float r1, float r2) const
+		__device__ __host__ vec3 sample_beckmann(const glm::vec3 & wo, float r1, float r2) const
 		{
 			if (!sampleVisibility) {
 				// Sample full distribution of normals for Beckmann distribution
@@ -478,7 +483,7 @@ namespace microfacet
 			}
 		}
 
-		__device__ __host__ inline float pdf_beckmann(const vec3& wo, const vec3& wh, const vec3& wi) const
+		__device__ __host__ inline float pdf_beckmann(const vec3 & wo, const vec3 & wh, const vec3 & wi) const
 		{
 			if (!sampleVisibility)
 			{
@@ -490,7 +495,7 @@ namespace microfacet
 				return G1(lambda_beckmann(wo));
 		}
 
-		__device__ __host__ inline float lambda_beckmann(const vec3 &w) const
+		__device__ __host__ inline float lambda_beckmann(const vec3 & w) const
 		{
 			const float absTanTheta = fabs(TanTheta(w));
 			// Check for infinity
@@ -505,7 +510,7 @@ namespace microfacet
 			return (1.f - 1.259f * a + 0.396f * a * a) / (3.535f * a + 2.181f * a * a);
 		}
 
-		__device__ __host__ vec3 sample_trowbridge_reitz(const vec3 &wo, float r1, float r2) const
+		__device__ __host__ vec3 sample_trowbridge_reitz(const vec3 & wo, float r1, float r2) const
 		{
 			float cosTheta = 0;
 			float phi = glm::two_pi<float>() * r2;
@@ -532,7 +537,7 @@ namespace microfacet
 			return wh;
 		}
 
-		__device__ __host__ inline float pdf_trowbridge_reitz(const vec3& wo, const vec3& wh, const vec3& wi) const
+		__device__ __host__ inline float pdf_trowbridge_reitz(const vec3 & wo, const vec3 & wh, const vec3 & wi) const
 		{
 			if (!sampleVisibility)
 			{
@@ -544,7 +549,7 @@ namespace microfacet
 				return G1(lambda_trowbridge_reitz(wo));
 		}
 
-		__device__ __host__ inline float lambda_trowbridge_reitz(const vec3 &w) const
+		__device__ __host__ inline float lambda_trowbridge_reitz(const vec3 & w) const
 		{
 			const float absTanTheta = fabs(TanTheta(w));
 

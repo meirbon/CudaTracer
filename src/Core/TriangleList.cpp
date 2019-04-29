@@ -341,6 +341,33 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 	return m;
 }
 
+int TriangleList::overwriteTexture(int idx, const std::string & path)
+{
+	if (m_Textures.size() <= idx)
+		return -1;
+
+	if (m_LoadedTextures.find(path) != m_LoadedTextures.end()) // Texture already in memory
+		return m_LoadedTextures.at(path);
+
+	std::string oldTexture;
+	for (auto& entry : m_LoadedTextures)
+	{
+		if (entry.second == idx)
+		{
+			oldTexture = entry.first;
+			break;
+		}
+	}
+	m_LoadedTextures.erase(oldTexture);
+
+	auto* tex = new core::Surface(path.c_str());
+	auto* oldTex = m_Textures[idx];
+	m_Textures[idx] = tex;
+	delete oldTex;
+	m_LoadedTextures[path] = idx;
+	return idx;
+}
+
 int TriangleList::loadTexture(const std::string & path)
 {
 	if (m_LoadedTextures.find(path) != m_LoadedTextures.end()) // Texture already in memory

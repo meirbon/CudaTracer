@@ -25,22 +25,21 @@ CudaRenderer::~CudaRenderer()
 
 void CudaRenderer::setDimensions(int width, int height)
 {
-	cudaDeviceSynchronize();
-	cudaError err;
+	cuda(DeviceSynchronize());
 
 	m_Width = width;
 	m_Height = height;
 
 	if (m_CudaFB != nullptr)
-		err = cuda(GraphicsUnregisterResource(m_CudaFB));
+		cuda(GraphicsUnregisterResource(m_CudaFB));
 
 	glNamedRenderbufferStorage(m_Renderbuffer, GL_RGBA32F, m_Width, m_Height);
 
 	const auto flags = cudaGraphicsRegisterFlagsSurfaceLoadStore | cudaGraphicsRegisterFlagsWriteDiscard;
-	err = cuda(GraphicsGLRegisterImage(&m_CudaFB, m_Renderbuffer, GL_RENDERBUFFER, flags));
-	err = cuda(GraphicsMapResources(1, &m_CudaFB, 0));
-	err = cuda(GraphicsSubResourceGetMappedArray(&m_CudaFBArray, m_CudaFB, 0, 0));
-	err = cuda(GraphicsUnmapResources(1, &m_CudaFB, 0));
+	cuda(GraphicsGLRegisterImage(&m_CudaFB, m_Renderbuffer, GL_RENDERBUFFER, flags));
+	cuda(GraphicsMapResources(1, &m_CudaFB, 0));
+	cuda(GraphicsSubResourceGetMappedArray(&m_CudaFBArray, m_CudaFB, 0, 0));
+	cuda(GraphicsUnmapResources(1, &m_CudaFB, 0));
 }
 
 void CudaRenderer::draw()

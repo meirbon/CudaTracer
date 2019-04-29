@@ -1,26 +1,25 @@
-#include "StaticBVHTree.h"
-#include "../Utils/Timer.h"
+#include "BVH/BVHTree.h"
+#include "Utils/Timer.h"
 
 #define PRINT_BUILD_TIME 1
 
-StaticBVHTree::StaticBVHTree(TriangleList *objectList, BVHType type, ctpl::ThreadPool *pool)
+BVHTree::BVHTree(TriangleList* objectList, ctpl::ThreadPool* pool)
+	: m_ObjectList(objectList), m_ThreadPool(pool)
 {
-	this->m_ObjectList = objectList;
-	this->m_Type = type;
-	this->m_ThreadPool = pool;
-	Reset();
+	m_PoolPtr.store(0);
+	reset();
 }
 
-void StaticBVHTree::ConstructBVH()
+void BVHTree::constructBVH()
 {
 	if (this->m_ObjectList != nullptr)
 	{
-		BuildBVH(&m_ObjectList->m_AABBs);
+		buildBVH(&m_ObjectList->m_AABBs);
 		return;
 	}
 }
 
-void StaticBVHTree::BuildBVH(std::vector<AABB> *aabbs)
+void BVHTree::buildBVH(std::vector<AABB>* aabbs)
 {
 	m_ThreadLimitReached = false;
 	m_BuildingThreads = 0;
@@ -35,7 +34,7 @@ void StaticBVHTree::BuildBVH(std::vector<AABB> *aabbs)
 		m_BVHPool.push_back({});
 		m_BVHPool.push_back({});
 
-		auto &rootNode = m_BVHPool[0];
+		auto& rootNode = m_BVHPool[0];
 		rootNode.bounds.leftFirst = 0;
 		rootNode.bounds.count = static_cast<int>(m_PrimitiveCount);
 		rootNode.CalculateBounds(aabbs->data(), m_PrimitiveIndices.data());
@@ -58,7 +57,7 @@ void StaticBVHTree::BuildBVH(std::vector<AABB> *aabbs)
 	}
 }
 
-void StaticBVHTree::Reset()
+void BVHTree::reset()
 {
 	CanUseBVH = false;
 	m_BVHPool.clear();

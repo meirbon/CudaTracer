@@ -19,75 +19,57 @@ namespace core
 		Camera(int width, int height, float fov, float mouseSens = ROTATION_SPEED,
 			glm::vec3 pos = glm::vec3(0.f, 0.f, 1.f));
 
-		Ray GenerateRay(float x, float y) const;
+		Ray generateRay(float x, float y) const;
 
-		Ray GenerateRandomRay(float x, float y, float r1, float r2) const;
+		Ray generateRandomRay(float x, float y, float r1, float r2) const;
 
-		void ProcessMouse(int x, int y) noexcept;
+		bool processMouse(int x, int y) noexcept;
 
-		void ProcessMouse(float x, float y) noexcept;
+		bool processMouse(float x, float y) noexcept;
 
-		glm::vec3 GetPosition() const noexcept;
+		glm::vec3 getPosition() const noexcept;
 
-		void MoveUp(float movementSpeed = MOVEMENT_SPEED) noexcept;
+		void move(vec3 offset) noexcept;
 
-		void MoveDown(float movementSpeed = MOVEMENT_SPEED) noexcept;
+		void rotate(vec2 offset) noexcept;
 
-		void MoveForward(float movementSpeed = MOVEMENT_SPEED) noexcept;
+		bool changeFov(float fov) noexcept;
 
-		void MoveBackward(float movementSpeed = MOVEMENT_SPEED) noexcept;
+		const float& getFov() const noexcept;
 
-		void MoveLeft(float movementSpeed = MOVEMENT_SPEED) noexcept;
+		const float& getPitch() const noexcept;
 
-		void MoveRight(float movementSpeed = MOVEMENT_SPEED) noexcept;
+		const float& getYaw() const noexcept;
 
-		void RotateUp(float times = 1) noexcept;
+		inline float getPlaneDistance() const noexcept { return m_PlaneDistance; }
 
-		void RotateDown(float times = 1) noexcept;
+		inline float getInvWidth() const noexcept { return m_InvWidth; }
 
-		void RotateRight(float times = 1) noexcept;
+		inline float getInvHeight() const noexcept { return m_InvHeight; }
 
-		void RotateLeft(float times = 1) noexcept;
+		inline float getAspectRatio() const noexcept { return m_AspectRatio; }
 
-		void ChangeFOV(float fov) noexcept;
+		inline glm::vec3 getUp() const noexcept { return m_Up; }
 
-		const float &GetFOV() const noexcept;
+		inline void setPosition(glm::vec3 position) noexcept { this->m_Position = position; }
 
-		const float &GetPitch() const noexcept;
+		inline glm::vec3 getForward() const noexcept { return m_Forward; }
 
-		const float &GetYaw() const noexcept;
-
-		inline float GetFOVDistance() const noexcept { return m_FOV_Distance; }
-
-		inline float GetInvWidth() const noexcept { return m_InvWidth; }
-
-		inline float GetInvHeight() const noexcept { return m_InvHeight; }
-
-		inline float GetAspectRatio() const noexcept { return m_AspectRatio; }
-
-		inline glm::vec3 GetUp() const noexcept { return m_Up; }
-
-		inline void SetPosition(glm::vec3 position) noexcept { this->m_Position = position; }
-
-		inline glm::vec3 GetViewDirection() const noexcept { return m_ViewDirection; }
-
-		glm::vec3 getDirectionFromPitchAndYaw() noexcept;
-
-		inline void SetWidth(int width)
+		inline void setWidth(int width)
 		{
 			m_Width = float(width);
 			m_InvWidth = (float)1.0f / float(width);
 			m_AspectRatio = float(m_Width) / float(m_Height);
 		}
 
-		inline void SetHeight(int height)
+		inline void setHeight(int height)
 		{
 			m_Height = float(height);
 			m_InvHeight = (float)1.0f / float(height);
 			m_AspectRatio = float(m_Width) / float(m_Height);
 		}
 
-		inline void SetWidthHeight(int width, int height)
+		inline void setDimensions(int width, int height)
 		{
 			m_Width = float(width);
 			m_Height = float(height);
@@ -96,47 +78,14 @@ namespace core
 			m_AspectRatio = float(width) / float(height);
 		}
 
-		inline bool HandleKeys(bool* keys, float speed = 1.0f)
-		{
-			bool moved = false;
-			if (keys[GLFW_KEY_LEFT_SHIFT])
-				speed *= 2.0f;
-
-			if (keys[GLFW_KEY_A])
-				MoveLeft(MOVEMENT_SPEED * speed), moved = true;
-			if (keys[GLFW_KEY_D])
-				MoveRight(MOVEMENT_SPEED * speed), moved = true;
-			if (keys[GLFW_KEY_W])
-				MoveForward(MOVEMENT_SPEED * speed), moved = true;
-			if (keys[GLFW_KEY_S])
-				MoveBackward(MOVEMENT_SPEED * speed), moved = true;
-			if (keys[GLFW_KEY_LEFT_CONTROL])
-				MoveDown(MOVEMENT_SPEED * speed), moved = true;
-			if (keys[GLFW_KEY_SPACE])
-				MoveUp(MOVEMENT_SPEED * speed), moved = true;
-			if (keys[GLFW_KEY_UP])
-				RotateUp(speed), moved = true;
-			if (keys[GLFW_KEY_DOWN])
-				RotateDown(speed), moved = true;
-			if (keys[GLFW_KEY_LEFT])
-				RotateLeft(speed), moved = true;
-			if (keys[GLFW_KEY_RIGHT])
-				RotateRight(speed), moved = true;
-			return moved;
-		}
-
+		bool handleKeys(const std::vector<bool>& keys, float speed = 1.0f);
 	public:
 		glm::vec3 m_Up = glm::vec3(0.0f, 1.0f, 0.0f);
-		glm::vec3 m_ViewDirection;
+		glm::vec3 m_Forward;
 		glm::vec3 m_Position;
+		float m_Fov;
 
-		struct
-		{
-			float x;
-			float y;
-		} m_FOV = { 90.f, 90.f };
-
-		float m_FOV_Distance;
+		float m_PlaneDistance;
 		float m_RotationSpeed = 0.005f;
 		float m_Width, m_Height;
 		float m_InvWidth, m_InvHeight;

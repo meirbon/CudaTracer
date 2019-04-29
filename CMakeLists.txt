@@ -10,7 +10,7 @@ enable_language(CUDA)
 find_library(CUDART_LIBRARY cudart ${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES})
 find_package(OpenGL REQUIRED)
 link_directories("${CMAKE_SOURCE_DIR}/lib")
-include_directories( ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+include_directories( ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES} "${PROJECT_SOURCE_DIR}/src")
 
 file(GLOB_RECURSE SOURCES "main.cpp" "src/*.cpp" "src/*.h" "src/*.cu" "src/*.cuh")
 
@@ -18,7 +18,6 @@ set(CUDA_NVCC_COMPILE_DEFINITIONS "${CUDA_NVCC_COMPILE_DEFINITIONS}" "GLM_FORCE_
 set(CMAKE_CXX_STANDARD 17)
 
 add_executable(${PROJECT_NAME} ${SOURCES})
-
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_11)

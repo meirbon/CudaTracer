@@ -88,21 +88,21 @@ namespace utils
 		glfwTerminate();
 	}
 
-	void GLFWWindow::SetSize(int width, int height)
+	void GLFWWindow::setSize(int width, int height)
 	{
 		m_Width = width, m_Height = height;
 		glfwSetWindowSize(m_Window, m_Width, m_Height);
 	}
 
-	void GLFWWindow::SetTitle(const char* title)
+	void GLFWWindow::setTitle(const char* title)
 	{
 		m_Title = title;
 		glfwSetWindowTitle(m_Window, title);
 	}
 
-	void GLFWWindow::PollEvents() { glfwPollEvents(); }
+	void GLFWWindow::pollEvents() { glfwPollEvents(); }
 
-	void GLFWWindow::Present()
+	void GLFWWindow::present()
 	{
 #if DEBUG
 		GLenum error = glGetError();
@@ -124,23 +124,29 @@ namespace utils
 		return glfwWindowShouldClose(m_Window);
 	}
 
-	int GLFWWindow::GetWidth()
+	void GLFWWindow::close()
+	{
+		glfwSetWindowShouldClose(m_Window, true);
+	}
+
+	void GLFWWindow::setVsync(bool status)
+	{
+		glfwSwapInterval(status ? 1 : 0);
+	}
+
+	int GLFWWindow::getWidth()
 	{
 		glfwGetWindowSize(m_Window, &m_Width, &m_Height);
 		return m_Width;
 	}
 
-	int GLFWWindow::GetHeight()
+	int GLFWWindow::getHeight()
 	{
 		glfwGetWindowSize(m_Window, &m_Width, &m_Height);
 		return m_Height;
 	}
 
-	void GLFWWindow::SetEventCallback(std::function<void(Event event)> callback) { m_OnEventCallback = callback; }
-
-	void GLFWWindow::SetResizeCallback(std::function<void(int, int)> callback) { m_OnResizeCallback = callback; }
-
-	void GLFWWindow::SwitchFullscreen()
+	void GLFWWindow::switchFullscreen()
 	{
 		static Timer t{};
 		if (t.elapsed() < 1000.0f)
@@ -244,5 +250,5 @@ namespace utils
 		instance->m_OnEventCallback(event);
 	}
 
-	void GLFWWindow::Clear(const glm::vec4 & color) { glClearColor(color.x, color.y, color.z, color.w); }
+	void GLFWWindow::clear(const glm::vec4 & color) { glClearColor(color.x, color.y, color.z, color.w); }
 } // namespace utils

@@ -45,6 +45,7 @@ namespace core
 	{
 		enum
 		{
+			NOT_OWNED = 0,
 			OWNER = 1
 		};
 
@@ -103,7 +104,7 @@ namespace core
 		std::vector<glm::vec4> m_TexBuffer;
 		int m_Width, m_Height;
 		int m_Pitch;
-		int m_Flags;
+		int m_Flags = NOT_OWNED;
 	};
 
 	class Sprite

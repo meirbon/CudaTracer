@@ -3,11 +3,13 @@
 #define GLM_FORCE_PURE
 #include <glm/glm.hpp>
 #include <cmath>
+
 #include <cuda_runtime.h>
 #include <cooperative_groups.h>
 
-#include "../Material.cuh"
-#include "../Microfacet.cuh"
+#include "CUDA/CudaAssert.h"
+#include "Core/Material.cuh"
+#include "Core/Microfacet.cuh"
 
 class MBVHNode;
 struct BVHNode;
@@ -15,6 +17,8 @@ using namespace glm;
 
 struct SceneData {
 	bool skyboxEnabled = false;
+	bool indirect = true;
+	bool direct = true;
 	int skyboxTexture = -1;
 
 	vec3* vertices = nullptr;
@@ -40,6 +44,26 @@ struct SceneData {
 	float normalEpsilon = 1e-5f;
 	float distEpsilon = 1e-5f;
 	float triangleEpsilon = 1e-3f;
+
+	__host__ void deallocate()
+	{
+		cuda(Free(vertices));
+		cuda(Free(normals));
+		cuda(Free(centerNormals));
+		cuda(Free(texCoords));
+		cuda(Free(gpuMatIdxs));
+		cuda(Free(indices));
+		cuda(Free(lightIndices));
+		cuda(Free(gpuPrimIndices));
+		cuda(Free(gpuMbvhNodes));
+		cuda(Free(gpuBvhNodes));
+		cuda(Free(gpuMaterials));
+		cuda(Free(currentFrame));
+		cuda(Free(gpuTexDims));
+		cuda(Free(gpuTexOffsets));
+		cuda(Free(gpuTexBuffer));
+		cuda(Free(microfacets));
+	}
 
 	__device__ inline Material &getMaterial(unsigned int hit_idx)
 	{
@@ -67,8 +91,8 @@ struct SceneData {
 		if (x < 0) x += 1.0f;
 		if (y < 0) y += 1.0f;
 
-		const uint ix = x * (width - 1);
-		const uint iy = y * (height - 1);
+		const uint ix = uint(x * (width - 1));
+		const uint iy = uint(y * (height - 1));
 
 		const uint offset = gpuTexOffsets[idx] + (ix + iy * width);
 		return gpuTexBuffer[offset];
@@ -85,8 +109,8 @@ struct SceneData {
 		if (x < 0) x += 1.0f;
 		if (y < 0) y += 1.0f;
 
-		unsigned int ix = x * (width - 1);
-		unsigned int iy = y * (height - 1);
+		const uint ix = uint(x * (width - 1));
+		const uint iy = uint(y * (height - 1));
 
 		const uint offset = gpuTexOffsets[idx] + (ix + iy * width);
 		return normalize(vec3(gpuTexBuffer[offset].r, gpuTexBuffer[offset].g, gpuTexBuffer[offset].b));
@@ -103,8 +127,8 @@ struct SceneData {
 		if (x < 0) x += 1.0f;
 		if (y < 0) y += 1.0f;
 
-		unsigned int ix = x * (width - 1);
-		unsigned int iy = y * (height - 1);
+		const uint ix = uint(x * (width - 1));
+		const uint iy = uint(y * (height - 1));
 
 		const uint offset = gpuTexOffsets[idx] + (ix + iy * width);
 		return gpuTexBuffer[offset].r;

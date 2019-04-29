@@ -1,5 +1,5 @@
-#include "BVHNode.cuh"
-#include "StaticBVHTree.h"
+#include "BVH/BVHNode.cuh"
+#include "BVH/BVHTree.h"
 
 #define MAX_PRIMS 4
 #define MAX_DEPTH 64

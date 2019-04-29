@@ -1,26 +1,20 @@
 #pragma once
 
-#include "../Utils/ctpl.h"
 #include <cuda_runtime.h>
 #include <atomic>
 #include <immintrin.h>
 #include <thread>
 #include <vector>
-#include "../Core/SceneData.cuh"
-#include "AABB.h"
-#include "../Triangle.cuh"
-#include "../TriangleList.h"
 
-class StaticBVHTree;
+#include "Utils/ctpl.h"
+#include "BVH/AABB.h"
+#include "Core/SceneData.cuh"
+#include "Core/Triangle.cuh"
+#include "Core/TriangleList.h"
+
+class BVHTree;
 
 constexpr float EPSILON_T = 0.001f;
-
-enum BVHType
-{
-	CENTRAL_SPLIT = 0,
-	SAH = 1,
-	SAH_BINNING = 2
-};
 
 struct BVHTraversal
 {
@@ -55,7 +49,7 @@ public:
 
 	__device__ __host__ inline bool IsLeaf() const noexcept { return bounds.count > -1; }
 
-	__device__ __host__ inline bool Intersect(const glm::vec3& org, const glm::vec3& dirInverse, float *tmin, float *tmax) const
+	__device__ __host__ inline bool Intersect(const glm::vec3& org, const glm::vec3& dirInverse, float* tmin, float* tmax) const
 	{
 		const vec3 t1 = (this->min - org) * dirInverse;
 		const vec3 t2 = (this->max - org) * dirInverse;
@@ -77,17 +71,17 @@ public:
 
 	__device__ __host__ inline int GetLeftFirst() const noexcept { return bounds.leftFirst; }
 
-	void Subdivide(const AABB *aabbs, BVHNode *bvhTree, unsigned int *primIndices, unsigned int depth, std::atomic_int &poolPtr);
+	void Subdivide(const AABB * aabbs, BVHNode * bvhTree, unsigned int* primIndices, unsigned int depth, std::atomic_int & poolPtr);
 
-	void SubdivideMT(const AABB *aabbs, BVHNode *bvhTree, unsigned int *primIndices, ctpl::ThreadPool *tPool, std::mutex *threadMutex, std::mutex *partitionMutex, unsigned int *threadCount, unsigned int depth, std::atomic_int &poolPtr);
+	void SubdivideMT(const AABB * aabbs, BVHNode * bvhTree, unsigned int* primIndices, ctpl::ThreadPool * tPool, std::mutex * threadMutex, std::mutex * partitionMutex, unsigned int* threadCount, unsigned int depth, std::atomic_int & poolPtr);
 
-	bool Partition(const AABB *aabbs, BVHNode *bvhTree, unsigned int *primIndices, std::mutex *partitionMutex, int &left, int &right, std::atomic_int& poolPtr);
+	bool Partition(const AABB * aabbs, BVHNode * bvhTree, unsigned int* primIndices, std::mutex * partitionMutex, int& left, int& right, std::atomic_int & poolPtr);
 
-	bool Partition(const AABB* aabbs, BVHNode* bvhTree, unsigned int* primIndices, int& left, int& right, std::atomic_int& poolPtr);
+	bool Partition(const AABB * aabbs, BVHNode * bvhTree, unsigned int* primIndices, int& left, int& right, std::atomic_int & poolPtr);
 
-	void CalculateBounds(const AABB* aabbs, const unsigned int *primitiveIndices);
+	void CalculateBounds(const AABB * aabbs, const unsigned int* primitiveIndices);
 
-	__device__ inline static void traverseBVH(const vec3& org, const vec3& dir, float *t, int *hit_idx, const SceneData &scene)
+	__device__ inline static void traverseBVH(const vec3 & org, const vec3 & dir, float* t, int* hit_idx, const SceneData & scene)
 	{
 		BVHTraversal todo[32];
 		int stackPtr = 0;
@@ -99,7 +93,7 @@ public:
 		todo[stackPtr].nodeIdx = 0;
 		while (stackPtr >= 0)
 		{
-			const auto &node = scene.gpuBvhNodes[todo[stackPtr].nodeIdx];
+			const auto& node = scene.gpuBvhNodes[todo[stackPtr].nodeIdx];
 			stackPtr--;
 
 			if (node.GetCount() > -1)
@@ -109,7 +103,7 @@ public:
 					const int primIdx = scene.gpuPrimIndices[node.GetLeftFirst() + i];
 					const auto idx = scene.indices[primIdx];
 					if (triangle::intersect(org, dir, t, scene.vertices[idx.x], scene.vertices[idx.y], scene.vertices[idx.z], scene.triangleEpsilon))
-						*hit_idx = primIdx;
+						* hit_idx = primIdx;
 				}
 			}
 			else
@@ -148,7 +142,7 @@ public:
 		}
 	}
 
-	__device__ inline static bool traverseBVHShadow(const vec3& org, const vec3& dir, float maxDist, const SceneData &scene)
+	__device__ inline static bool traverseBVHShadow(const vec3 & org, const vec3 & dir, float maxDist, const SceneData & scene)
 	{
 		BVHTraversal todo[32];
 		int stackPtr = 0;
@@ -160,7 +154,7 @@ public:
 		todo[stackPtr].nodeIdx = 0;
 		while (stackPtr >= 0)
 		{
-			const auto &node = scene.gpuBvhNodes[todo[stackPtr].nodeIdx];
+			const auto& node = scene.gpuBvhNodes[todo[stackPtr].nodeIdx];
 			stackPtr--;
 
 			if (node.GetCount() > -1)
@@ -211,7 +205,7 @@ public:
 		return true;
 	}
 
-	__host__ inline static void traverseBVH(const vec3& org, const vec3& dir, float *t, int *hit_idx, const std::vector<BVHNode>& nodes, const unsigned int* primIndices, const TriangleList& list)
+	__host__ inline static void traverseBVH(const vec3 & org, const vec3 & dir, float* t, int* hit_idx, const std::vector<BVHNode> & nodes, const unsigned int* primIndices, const TriangleList & list)
 	{
 		BVHTraversal todo[64];
 		int stackPtr = 0;
@@ -222,7 +216,7 @@ public:
 		todo[stackPtr].nodeIdx = 0;
 		while (stackPtr >= 0)
 		{
-			const auto &node = nodes[todo[stackPtr].nodeIdx];
+			const auto& node = nodes[todo[stackPtr].nodeIdx];
 			stackPtr--;
 
 			if (node.GetCount() > -1)
@@ -230,9 +224,9 @@ public:
 				for (int i = 0; i < node.GetCount(); i++)
 				{
 					const int primIdx = primIndices[node.GetLeftFirst() + i];
-					const auto &idx = list.m_Indices[primIdx];
+					const auto& idx = list.m_Indices[primIdx];
 					if (triangle::intersect(org, dir, t, list.m_Vertices[idx.x], list.m_Vertices[idx.y], list.m_Vertices[idx.z], EPSILON_T))
-						*hit_idx = primIdx;
+						* hit_idx = primIdx;
 				}
 			}
 			else

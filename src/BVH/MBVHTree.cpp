@@ -6,13 +6,13 @@
 #include "../Utils/Timer.h"
 #endif
 
-MBVHTree::MBVHTree(StaticBVHTree *orgTree)
+MBVHTree::MBVHTree(BVHTree *orgTree)
 {
 	this->m_PrimitiveIndices = orgTree->m_PrimitiveIndices;
 	this->m_OriginalTree = orgTree;
 }
 
-void MBVHTree::ConstructBVH()
+void MBVHTree::constructBVH()
 {
 	m_Tree.clear();
 	m_Tree.resize(m_OriginalTree->m_PrimitiveCount * 2);

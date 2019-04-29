@@ -3,6 +3,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
+#include <cuda_runtime.h>
+
 using namespace glm;
 
 __device__ __host__ inline unsigned int RandomInt(unsigned int& seed)
@@ -15,7 +17,7 @@ __device__ __host__ inline unsigned int RandomInt(unsigned int& seed)
 
 __device__ __host__ inline float RandomFloat(unsigned int& seed)
 {
-	return float(RandomInt(seed)) * 2.3283064365387e-10f;
+	return float(RandomInt(seed))* 2.3283064365387e-10f;
 }
 
 __device__ inline int RandomIntMax(unsigned int& seed, int max) {
@@ -23,15 +25,22 @@ __device__ inline int RandomIntMax(unsigned int& seed, int max) {
 }
 
 // T = x/right vector, B = y/up vector, N = normal facing in z direction
-__device__ __host__ inline void convertToLocalSpace(const vec3& N, vec3* T, vec3* B)
+__device__ __host__ inline void convertToLocalSpace(const vec3 & N, vec3 * T, vec3 * B)
 {
 	const vec3 W = glm::abs(N.x) > 0.99f ? vec3(0.0f, 1.0f, 0.0f) : vec3(1.0f, 0.0f, 0.0f);
 	*T = normalize(cross(N, W));
 	*B = cross(N, *T);
 }
-__device__ __host__ inline vec3 localToWorld(const vec3& sample, const vec3& T, const vec3& B, const vec3& normal)
+__device__ __host__ inline vec3 localToWorld(const vec3 & sample, const vec3 & T, const vec3 & B, const vec3 & normal)
 {
-	return sample.x * T + sample.y * B + sample.z * normal;
+	return sample.x* T + sample.y * B + sample.z * normal;
+}
+
+__device__ __host__ inline vec3 sampleToWorld(const vec3 & sample, const vec3 & normal)
+{
+	vec3 T, B;
+	convertToLocalSpace(normal, &T, &B);
+	return localToWorld(sample, T, B, normal);
 }
 
 __device__ __host__ inline vec3 sampleHemisphere(float r1, float r2)
@@ -43,9 +52,9 @@ __device__ __host__ inline vec3 sampleHemisphere(float r1, float r2)
 	return { x, r1, z };
 }
 
-__device__ inline glm::vec2 ConcentricSampleDisk(const glm::vec2& u) {
+__device__ inline glm::vec2 ConcentricSampleDisk(const glm::vec2 & u) {
 	//Map from [0,1] to [-1,1]
-	glm::vec2 uOffset = 2.f * u - glm::vec2(1, 1);
+	glm::vec2 uOffset = 2.f * u - glm::vec2(1.0f);
 
 	// Handle degeneracy at the origin
 	if (uOffset.x == 0 && uOffset.y == 0)
@@ -64,7 +73,7 @@ __device__ inline glm::vec2 ConcentricSampleDisk(const glm::vec2& u) {
 	return r * glm::vec2(std::cosf(theta), std::sinf(theta));
 }
 
-__device__ inline void computeOrthonormalBasisNaive(const glm::vec3& w, glm::vec3* u, glm::vec3* v) {
+__device__ inline void computeOrthonormalBasisNaive(const glm::vec3 & w, glm::vec3 * u, glm::vec3 * v) {
 	if (fabs(w.x) > .9) { /*If W is to close to X axis then pick Y*/
 		*u = glm::vec3{ 0.0f, 1.0f, 0.0f };
 	}
@@ -75,7 +84,7 @@ __device__ inline void computeOrthonormalBasisNaive(const glm::vec3& w, glm::vec
 	*v = cross(w, *u);
 }
 
-__device__ inline glm::vec2 concentricSampleDisk(const glm::vec2& u) {
+__device__ inline glm::vec2 concentricSampleDisk(const glm::vec2 & u) {
 	//Map from [0,1] to [-1,1]
 	glm::vec2 uOffset = 2.f * u - glm::vec2(1, 1);
 
@@ -98,7 +107,7 @@ __device__ inline glm::vec2 concentricSampleDisk(const glm::vec2& u) {
 
 //Generate stratified sample of 2D [0,1]^2
 __device__ inline glm::vec2 Random2DStratifiedSample(unsigned int& seed) {
-	//Set the size of the pixel in stratums.
+	//Set the size of the pixel in strata.
 	constexpr int width2D = 4;
 	constexpr int height2D = 4;
 	constexpr float pixelWidth = 1.0f / width2D;
@@ -131,7 +140,7 @@ __device__ inline glm::vec3 getConeSample(glm::vec3 dir, float extent, unsigned 
 	glm::vec3 o1 = glm::normalize(ortho(dir));
 	glm::vec3 o2 = glm::normalize(glm::cross(dir, o1));
 
-	// Convert to spherical coords aligned to dir
+	// Convert to spherical coordinates aligned to direction
 	glm::vec2 r = {
 		(RandomInt(seed) >> 16) / 65535.0f,
 		(RandomInt(seed) >> 16) / 65535.0f

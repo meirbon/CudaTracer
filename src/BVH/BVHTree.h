@@ -2,20 +2,21 @@
 
 #include <iostream>
 #include <vector>
+#include <mutex>
 
-#include "../TriangleList.h"
-#include "BVHNode.cuh"
-#include "../Utils/ctpl.h"
-#include "AABB.h"
+#include "Core/TriangleList.h"
+#include "Utils/ctpl.h"
+#include "BVH/BVHNode.cuh"
+#include "BVH/AABB.h"
 
-class StaticBVHTree
+class BVHTree
 {
 public:
-	StaticBVHTree(TriangleList *objectList, BVHType type = SAH, ctpl::ThreadPool *pool = nullptr);
+	BVHTree(TriangleList *objectList, ctpl::ThreadPool *pool = nullptr);
 
-	void ConstructBVH();
-	void BuildBVH(std::vector<AABB> *aabbs);
-	void Reset();
+	void constructBVH();
+	void buildBVH(std::vector<AABB> *aabbs);
+	void reset();
 
 public:
 	std::vector<BVHNode> m_BVHPool;
@@ -24,9 +25,8 @@ public:
 	TriangleList *m_ObjectList;
 
 	bool CanUseBVH = false;
-	std::atomic_int m_PoolPtr = 0;
+	std::atomic_int m_PoolPtr;
 
-	BVHType m_Type = SAH;
 	ctpl::ThreadPool *m_ThreadPool = nullptr;
 	std::mutex m_PoolPtrMutex{};
 	std::mutex m_ThreadMutex{};

@@ -73,6 +73,7 @@ public:
 
 	std::vector<uvec3> m_Indices{};
 
+	int overwriteTexture(int idx, const std::string& path);
 	int loadTexture(const std::string &path);
 private:
 	std::mutex m_MaterialMutex;
