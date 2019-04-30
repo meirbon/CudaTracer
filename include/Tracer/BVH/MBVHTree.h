@@ -2,9 +2,8 @@
 
 #include <mutex>
 
-#include "BVH/MBVHNode.cuh"
-#include "BVH/BVHTree.h"
-#include "Utils/ctpl.h"
+#include <Tracer/BVH/MBVHNode.cuh>
+#include <Tracer/BVH/BVHTree.h>
 
 class AABB;
 class MBVHNode;

@@ -7,9 +7,9 @@
 #include <cuda_runtime.h>
 #include <cooperative_groups.h>
 
-#include "CUDA/CudaAssert.h"
-#include "Core/Material.cuh"
-#include "Core/Microfacet.cuh"
+#include <Tracer/CUDA/CudaAssert.h>
+#include <Tracer/Core/Material.cuh>
+#include <Tracer/Core/Microfacet.cuh>
 
 class MBVHNode;
 struct BVHNode;

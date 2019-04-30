@@ -12,11 +12,11 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
-#include "BVH/AABB.h"
-#include "Utils/Surface.h"
-#include "Material.cuh"
-#include "Microfacet.cuh"
-#include "Utils/ctpl.h"
+#include <Tracer/BVH/AABB.h>
+#include <Tracer/Utils/Surface.h>
+#include <Tracer/Core/Material.cuh>
+#include <Tracer/Core/Microfacet.cuh>
+#include <Tracer/Utils/ctpl.h>
 
 using namespace glm;
 

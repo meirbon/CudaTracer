@@ -2,7 +2,7 @@
 
 #include <glm/glm.hpp>
 #include <cuda_runtime.h>
-#include "BVH/AABB.h"
+#include <Tracer/BVH/AABB.h>
 
 #define EPSILON_TRIANGLE 0.0001f
 

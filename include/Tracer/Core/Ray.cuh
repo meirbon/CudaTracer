@@ -9,8 +9,8 @@
 
 #include <cstdio>
 
-#include "Core/Material.cuh"
-#include "Core/Random.cuh"
+#include <Tracer/Core/Material.cuh>
+#include <Tracer/Core/Random.cuh>
 
 #define MAX_DISTANCE 1e34f
 

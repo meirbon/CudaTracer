@@ -1,5 +1,7 @@
-#include "BVH/BVHNode.cuh"
-#include "BVH/BVHTree.h"
+#include <Tracer/BVH/BVHNode.cuh>
+#include <Tracer/Utils/ctpl.h>
+
+#include <glm/glm.hpp>
 
 #define MAX_PRIMS 4
 #define MAX_DEPTH 64

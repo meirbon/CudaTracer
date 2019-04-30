@@ -1,13 +1,13 @@
 #pragma once
 
-#include "Utils/RandomGenerator.h"
+#include <Tracer/Utils/RandomGenerator.h>
 
 class Xor128 : public RandomGenerator
 {
   public:
     unsigned int RandomUint() override
     {
-        uint t;
+        unsigned int t;
         t = x ^ (x << 11);
         x = y;
         y = z;

@@ -1,6 +1,6 @@
-#include "BVH/MBVHNode.cuh"
-#include "BVH/MBVHTree.h"
-#include "Core/SceneData.cuh"
+#include <Tracer/BVH/MBVHNode.cuh>
+#include <Tracer/BVH/MBVHTree.h>
+#include <Tracer/Core/SceneData.cuh>
 
 void MBVHNode::SetBounds(unsigned int nodeIdx, const vec3 &min, const vec3 &max)
 {

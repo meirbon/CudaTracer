@@ -1,5 +1,5 @@
-#include "BVH/BVHTree.h"
-#include "Utils/Timer.h"
+#include <Tracer/BVH/BVHTree.h>
+#include <Tracer/Utils/Timer.h>
 
 #define PRINT_BUILD_TIME 1
 

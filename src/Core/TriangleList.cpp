@@ -1,7 +1,9 @@
-#include "TriangleList.h"
-#include "Triangle.cuh"
+#include <Tracer/Core/TriangleList.h>
+#include <Tracer/Core/Triangle.cuh>
 
 #include <iostream>
+
+using namespace glm;
 
 TriangleList::TriangleList()
 {

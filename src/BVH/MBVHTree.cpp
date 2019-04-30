@@ -1,9 +1,9 @@
-#include "MBVHTree.h"
+#include <Tracer/BVH/MBVHTree.h>
 
 #define PRINT_BUILD_TIME 1
 
 #if PRINT_BUILD_TIME
-#include "../Utils/Timer.h"
+#include <Tracer/Utils/Timer.h>
 #endif
 
 MBVHTree::MBVHTree(BVHTree *orgTree)

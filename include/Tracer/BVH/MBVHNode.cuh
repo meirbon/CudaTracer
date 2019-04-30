@@ -3,10 +3,10 @@
 #include <glm/glm.hpp>
 #include <immintrin.h>
 
-#include "BVH/BVHNode.cuh"
-#include "BVH/BVHTree.h"
-#include "Core/Triangle.cuh"
-#include "Core/SceneData.cuh"
+#include <Tracer/BVH/BVHNode.cuh>
+#include <Tracer/BVH/BVHTree.h>
+#include <Tracer/Core/Triangle.cuh>
+#include <Tracer/Core/SceneData.cuh>
 
 struct SceneData;
 

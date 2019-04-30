@@ -9,12 +9,12 @@
 #include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
 
-#include "Core/Camera.h"
-#include "Core/Ray.cuh"
-#include "Core/Triangle.cuh"
-#include "BVH/MBVHNode.cuh"
-#include "Core/SceneData.cuh"
-#include "CUDA/CudaAssert.h"
+#include <Tracer/Core/Camera.h>
+#include <Tracer/Core/Ray.cuh>
+#include <Tracer/Core/Triangle.cuh>
+#include <Tracer/BVH/MBVHNode.cuh>
+#include <Tracer/Core/SceneData.cuh>
+#include <Tracer/CUDA/CudaAssert.h>
 
 using namespace core;
 using namespace glm;

@@ -1,8 +1,8 @@
-#include "Application.h"
+#include <Tracer/Application.h>
 
 #include <iostream>
 
-#include "CUDA/CudaAssert.h"
+#include <Tracer/CUDA/CudaAssert.h>
 #include "ImGui/imgui.h"
 
 using namespace core;

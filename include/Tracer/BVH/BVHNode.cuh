@@ -2,15 +2,13 @@
 
 #include <cuda_runtime.h>
 #include <atomic>
-#include <immintrin.h>
-#include <thread>
 #include <vector>
 
-#include "Utils/ctpl.h"
-#include "BVH/AABB.h"
-#include "Core/SceneData.cuh"
-#include "Core/Triangle.cuh"
-#include "Core/TriangleList.h"
+#include <Tracer/Utils/ctpl.h>
+#include <Tracer/BVH/AABB.h>
+#include <Tracer/Core/SceneData.cuh>
+#include <Tracer/Core/Triangle.cuh>
+#include <Tracer/Core/TriangleList.h>
 
 class BVHTree;
 
@@ -22,7 +20,7 @@ struct BVHTraversal
 	float tNear;
 
 	__device__ __host__ BVHTraversal() {};
-	__device__ __host__ inline BVHTraversal(int nIdx, float t)
+	__device__ __host__ BVHTraversal(int nIdx, float t)
 		: nodeIdx(nIdx), tNear(t)
 	{
 	}

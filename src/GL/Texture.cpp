@@ -1,4 +1,4 @@
-#include "Texture.h"
+#include <Tracer/GL/Texture.h>
 #include <iostream>
 
 namespace gl

@@ -2,9 +2,7 @@
 
 #include <glm/glm.hpp>
 
-#include "Ray.cuh"
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
+#include <Tracer/Core/Ray.cuh>
 
 namespace core
 {

@@ -1,4 +1,6 @@
-#include "Camera.h"
+#include <Tracer/Core/Camera.h>
+
+#include <GLFW/glfw3.h>
 
 using namespace glm;
 

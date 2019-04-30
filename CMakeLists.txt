@@ -12,7 +12,10 @@ find_package(OpenGL REQUIRED)
 link_directories("${CMAKE_SOURCE_DIR}/lib")
 include_directories( ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES} "${PROJECT_SOURCE_DIR}/src")
 
-file(GLOB_RECURSE SOURCES "main.cpp" "src/*.cpp" "src/*.h" "src/*.cu" "src/*.cuh")
+file(GLOB_RECURSE SOURCES "main.cpp"
+    "src/*.cpp" "src/*.h" "src/*.cu" "src/*.cuh"
+    "include/Tracer/*.cpp" "include/Tracer/*.h" "include/Tracer/*.cu" "include/Tracer/*.cuh"
+)
 
 set(CUDA_NVCC_COMPILE_DEFINITIONS "${CUDA_NVCC_COMPILE_DEFINITIONS}" "GLM_FORCE_PURE")
 set(CMAKE_CXX_STANDARD 17)

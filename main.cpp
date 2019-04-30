@@ -7,14 +7,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/ext.hpp>
 
-#include "Application.h"
-#include "CUDA/CudaAssert.h"
-#include "Core/TriangleList.h"
-#include "Utils/GLFWWindow.h"
-
-#define _CRTDBG_MAP_ALLOC
-#include <stdlib.h>
-#include <crtdbg.h>
+#include "Tracer/Application.h"
+#include "Tracer/Core/TriangleList.h"
+#include "Tracer/Utils/GLFWWindow.h"
 
 int main(int argc, char* argv[])
 {
@@ -23,13 +18,14 @@ int main(int argc, char* argv[])
 
 	using namespace utils;
 	using namespace core;
+	using namespace glm;
 
 	auto window = GLFWWindow("CudaTracer", 1280, 720, false, false);
 	window.setVsync(false);
 
 	auto triangleList = TriangleList();
 
-	const std::string sky = "Models/pisa.png";
+	const std::string sky = "Models/envmap.hdr";
 
 	std::string nanosuit = "Models/nanosuit/nanosuit.obj";
 	std::string sponza = "Models/sponza/sponza.obj";

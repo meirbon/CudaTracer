@@ -12,20 +12,19 @@
 #include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
 
-#include "CUDA/Kernel.cuh"
-#include "CUDA/CudaRenderer.h"
+#include <Tracer/CUDA/Kernel.cuh>
+#include <Tracer/CUDA/CudaRenderer.h>
+#include <Tracer/Utils/Window.h>
+#include <Tracer/Utils/ctpl.h>
+#include <Tracer/Utils/Timer.h>
 
-#include "Utils/Window.h"
-#include "Utils/ctpl.h"
-#include "Utils/Timer.h"
+#include <Tracer/Core/TriangleList.h>
+#include <Tracer/Core/Camera.h>
+#include <Tracer/Core/Material.cuh>
+#include <Tracer/Core/Microfacet.cuh>
 
-#include "Core/TriangleList.h"
-#include "Core/Camera.h"
-#include "Core/Material.cuh"
-#include "Core/Microfacet.cuh"
-
-#include "BVH/BVHTree.h"
-#include "BVH/MBVHTree.h"
+#include <Tracer/BVH/BVHTree.h>
+#include <Tracer/BVH/MBVHTree.h>
 
 class Application
 {

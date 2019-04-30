@@ -1,4 +1,4 @@
-#include "Utils/RandomGenerator.h"
+#include <Tracer/Utils/RandomGenerator.h>
 
 class MersenneTwister : public RandomGenerator
 {

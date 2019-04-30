@@ -1,7 +1,7 @@
-#include <glm/ext.hpp>
+#include <Tracer/GL/GLTools.h>
+#include <Tracer/GL/Shader.h>
 
-#include "GLTools.h"
-#include "Shader.h"
+#include <glm/ext.hpp>
 
 using namespace std;
 using namespace glm;

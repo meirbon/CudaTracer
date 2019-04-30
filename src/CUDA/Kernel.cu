@@ -1,17 +1,16 @@
-#include "CUDA/Kernel.cuh"
+#include <Tracer/CUDA/Kernel.cuh>
 
 #include <cuda_runtime.h>
 #include <surface_functions.h>
 #include <cuda_surface_types.h>
 #include <device_launch_parameters.h>
 
-#include "CUDA/CudaDefinitions.h"
-#include "CUDA/CudaAssert.h"
+#include <Tracer/CUDA/CudaDefinitions.h>
+#include <Tracer/CUDA/CudaAssert.h>
 
-#include "Core/SceneData.cuh"
-#include "BVH/MBVHNode.cuh"
-#include "BVH/BVHNode.cuh"
-#include "Core/Random.cuh"
+#include <Tracer/Core/SceneData.cuh>
+#include <Tracer/BVH/MBVHNode.cuh>
+#include <Tracer/Core/Random.cuh>
 
 using namespace glm;
 
@@ -481,6 +480,7 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 		// New outgoing ray direction
 		vec3 wo = localToWorld(woLocal, T, B, wm);
 
+		ray.lastBounceType = mat.type;
 		float PDF = 0.0f;
 		switch (mat.type)
 		{
@@ -501,17 +501,20 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 		}
 		case(FresnelBeckmann):
 		{
+			ray.lastBounceType = Beckmann;
 			PDF = mf.pdf_beckmann(woLocal, wiLocal, wmLocal);
 
 			break;
 		}
 		case(FresnelGGX):
 		{
+			ray.lastBounceType = GGX;
 			PDF = mf.pdf_ggx(woLocal, wiLocal, wmLocal);
 			break;
 		}
 		case(FresnelTrowbridge):
 		{
+			ray.lastBounceType = Trowbridge;
 			PDF = mf.pdf_trowbridge_reitz(woLocal, wiLocal, wmLocal);
 			break;
 		}
@@ -523,8 +526,6 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 
 		if (mat.type >= FresnelBeckmann)
 		{
-			ray.lastBounceType = mat.type;
-
 			const float n1 = backFacing ? mat.refractIdx : 1.0f;
 			const float n2 = backFacing ? 1.0f : mat.refractIdx;
 			const float n = n1 / n2;
@@ -572,7 +573,6 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 				const float area = triangle::getArea(scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z]);
 
 				const auto emission = scene.gpuMaterials[scene.gpuMatIdxs[light]].emission;
-				const vec3 shadowCol = ray.throughput * matColor * emission * NdotL * float(scene.lightCount);
 
 				float mfPDF = 1.0f;
 				switch (mat.type)
@@ -611,6 +611,9 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 					break;
 				}
 
+				const vec3 BRDF = matColor * mfPDF;
+				const vec3 shadowCol = ray.throughput * BRDF * emission * NdotL * float(scene.lightCount);
+
 				mfPDF = 1.0f / mfPDF;
 				const float lightPDF = squaredDistance / (LNdotL * area);
 
@@ -624,7 +627,7 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 					const float pdf = 1.0f / (w1 * mfPDF + w2 * lightPDF);
 
 					sRays[shadowIdx] = ShadowRay(
-						ray.origin, L, shadowCol * pdf,
+						ray.origin, L, shadowCol * PDF * pdf,
 						distance - scene.distEpsilon, ray.index
 					);
 				}

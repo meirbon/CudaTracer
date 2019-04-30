@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Utils/Surface.h"
+#include <Tracer/Utils/Surface.h>
 #include <GL/glew.h>
 
 namespace gl

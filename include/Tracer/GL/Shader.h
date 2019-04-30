@@ -7,7 +7,7 @@
 #include <GL/glew.h>
 #include <glm/glm.hpp>
 
-#include "Texture.h"
+#include <Tracer/GL/Texture.h>
 
 namespace gl
 {
