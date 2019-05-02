@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <Tracer/Core/Microfacet.cuh>
+
 using namespace glm;
 
 enum MaterialType {
@@ -161,5 +163,48 @@ struct Material {
 			"FresnelGGX\0",
 			"FresnelTrowbridge\0"
 		};
+	}
+
+	__device__ __host__ glm::vec3 sample(const microfacet::Microfacet & mf, const glm::vec3 & wiLocal, float r1, float r2) const
+	{
+		vec3 wmLocal{};
+		switch (this->type)
+		{
+		case(Beckmann):
+			return mf.sample_beckmann(wiLocal, r1, r2);
+		case(GGX):
+			return mf.sample_ggx(wiLocal, r1, r2);
+		case(Trowbridge):
+			return mf.sample_trowbridge_reitz(wiLocal, r1, r2);
+		case(FresnelBeckmann):
+			return mf.sample_beckmann(wiLocal, r1, r2);
+		case(FresnelGGX):
+			return mf.sample_ggx(wiLocal, r1, r2);
+		case(FresnelTrowbridge):
+			return mf.sample_trowbridge_reitz(wiLocal, r1, r2);
+		default:
+			return { 0.0f, 0.0f, 0.0f };
+		}
+	}
+
+	__device__ __host__ float evaluate(const microfacet::Microfacet & mf, const glm::vec3 & wo, const glm::vec3 & wm, const glm::vec3 & wi) const
+	{
+		switch (this->type)
+		{
+		case(Beckmann):
+			return mf.pdf_beckmann(wo, wm, wi);
+		case(GGX):
+			return mf.pdf_ggx(wo, wm, wi);
+		case(Trowbridge):
+			return mf.pdf_trowbridge_reitz(wo, wm, wi);
+		case(FresnelBeckmann):
+			return mf.pdf_beckmann(wo, wm, wi);
+		case(FresnelGGX):
+			return mf.pdf_ggx(wo, wm, wi);
+		case(FresnelTrowbridge):
+			return mf.pdf_trowbridge_reitz(wo, wm, wi);
+		default:
+			return 0.0f;
+		}
 	}
 };

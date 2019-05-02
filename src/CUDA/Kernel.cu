@@ -55,6 +55,26 @@ __device__ inline void draw_unbounded(unsigned int x, unsigned int y, const vec4
 	surf2Dwrite(color, framebuffer, x * sizeof(vec4), y, cudaBoundaryModeZero);
 }
 
+__device__ inline float balancePDFs(float pdf1, float pdf2)
+{
+	const float sum = pdf1 + pdf2;
+	const float w1 = pdf1 / sum;
+	const float w2 = pdf2 / sum;
+	return max(0.0f, 1.0f / (w1 * pdf1 + w2 * pdf2));
+}
+
+__device__ inline float balanceHeuristic(float nf, float fPdf, float ng, float gPdf)
+{
+	return max(0.0f, (nf * fPdf) / (nf * fPdf + ng * gPdf));
+}
+
+__device__ inline float powerHeuristic(float nf, float fPdf, float ng, float gPdf)
+{
+	const float f = nf * fPdf;
+	const float g = ng * gPdf;
+	return max(0.0f, (f * f) / (f * f + g * g));
+}
+
 __global__ void setGlobals(int rayBufferSize, int width, int height)
 {
 	const int maxBuffer = width * height;
@@ -134,6 +154,8 @@ __global__ void LAUNCH_BOUNDS shade_invalid(Ray * rays, Ray * eRays, ShadowRay *
 
 		if (ray.valid())
 		{
+			if (!scene.indirect)
+				continue;
 			const Material& mat = scene.gpuMaterials[scene.gpuMatIdxs[ray.hit_idx]];
 			if (mat.type != Light) continue;
 
@@ -157,74 +179,26 @@ __global__ void LAUNCH_BOUNDS shade_invalid(Ray * rays, Ray * eRays, ShadowRay *
 			const bool backFacing = glm::dot(normal, ray.direction) >= 0.0f;
 			if (backFacing) normal *= -1.0f;
 
-			const vec3 matColor = mat.diffuseTex < 0 ? mat.albedo : scene.getTextureColor(mat.diffuseTex, tCoords);
 			const auto mf = scene.microfacets[scene.gpuMatIdxs[ray.hit_idx]];
 
-			if (ray.lastBounceType <= Fresnel || ray.lastBounceType >= FresnelBeckmann || !scene.indirect)
+			if (ray.lastBounceType != Lambertian)
 			{
-				if (scene.direct)
-					color = ray.throughput * mat.emission;
+				color = ray.throughput * mat.emission;
 			}
 			else
 			{
-				if (!scene.direct)
+				const float NdotL = dot(ray.lastNormal, ray.direction);
+				const float LNdotL = dot(normal, -ray.direction);
+				const float lightPDF = ray.t * ray.t / (LNdotL * triangle::getArea(scene.vertices[tIdx.x], scene.vertices[tIdx.y], scene.vertices[tIdx.z]));
+
+				const vec3 wi = glm::reflect(-ray.direction, ray.lastNormal);
+				const float oPDF = mat.type <= Lambertian ? NdotL * glm::one_over_pi<float>() : mat.evaluate(mf, ray.direction, ray.lastNormal, wi);
+
+				const vec3 col = ray.throughput * mat.emission * NdotL;
+				if (lightPDF > 0 && oPDF > 0)
 				{
-					const float NdotL = dot(ray.lastNormal, ray.direction);
-					const float LNdotL = dot(normal, -ray.direction);
-					const float lightPDF = ray.t * ray.t / (LNdotL * triangle::getArea(scene.vertices[tIdx.x], scene.vertices[tIdx.y], scene.vertices[tIdx.z]));
-
-					const vec3 wi = glm::reflect(-ray.direction, ray.lastNormal);
-					float oPDF = 0;
-					switch (ray.lastBounceType)
-					{
-					case(Lambertian):
-					{
-						oPDF = NdotL * glm::one_over_pi<float>();
-						break;
-					}
-					case(GGX):
-					{
-						oPDF = 1.0f / mf.pdf_ggx(ray.direction, ray.lastNormal, wi);
-						break;
-					}
-					case(Beckmann):
-					{
-						oPDF = 1.0f / mf.pdf_beckmann(ray.direction, ray.lastNormal, wi);
-						break;
-					}
-					case(Trowbridge):
-					{
-						oPDF = 1.0f / mf.pdf_trowbridge_reitz(ray.direction, ray.lastNormal, wi);
-						break;
-					}
-					case(FresnelGGX):
-					{
-						oPDF = 1.0f / mf.pdf_ggx(ray.direction, ray.lastNormal, wi);
-						break;
-					}
-					case(FresnelBeckmann):
-					{
-						oPDF = 1.0f / mf.pdf_beckmann(ray.direction, ray.lastNormal, wi);
-						break;
-					}
-					case(FresnelTrowbridge):
-					{
-						oPDF = 1.0f / mf.pdf_trowbridge_reitz(ray.direction, ray.lastNormal, wi);
-						break;
-					}
-					default:
-						break;
-					}
-
-					const vec3 col = ray.throughput * mat.emission * NdotL;
-					if (lightPDF > 0 && oPDF > 0)
-					{
-						const float sum = oPDF + lightPDF;
-						const float w1 = oPDF / sum;
-						const float w2 = lightPDF / sum;
-						const float PDF = 1.0f / (w1 * oPDF + w2 * lightPDF);
-						color = col * PDF;
-					}
+					const float pdf = balancePDFs(oPDF, lightPDF);
+					color = col * pdf;
 				}
 			}
 		}
@@ -280,13 +254,12 @@ __global__ void LAUNCH_BOUNDS shade_regular(Ray * rays, Ray * eRays, ShadowRay *
 		normal *= backFacing ? -1.0f : 1.0f;
 
 		const vec3 matColor = mat.diffuseTex < 0 ? mat.albedo : scene.getTextureColor(mat.diffuseTex, tCoords);
-		ray.origin += normal * EPSILON;
 
 		switch (mat.type)
 		{
 		case Lambertian: {
 			const vec3 BRDF = matColor * glm::one_over_pi<float>();
-			if (scene.indirect)
+			if (scene.shadow)
 			{
 				const int light = RandomIntMax(seed, scene.lightCount - 1);
 				const uvec3 lightIdx = scene.indices[scene.lightIndices[light]];
@@ -306,27 +279,20 @@ __global__ void LAUNCH_BOUNDS shade_regular(Ray * rays, Ray * eRays, ShadowRay *
 				if (NdotL > 0 && LNdotL > 0)
 				{
 					const float area = triangle::getArea(scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z]);
-					const float solidAngle = LNdotL * area / squaredDistance;
-
 					const auto emission = scene.gpuMaterials[scene.gpuMatIdxs[light]].emission;
-					const vec3 shadowCol = ray.throughput * BRDF * emission * NdotL * float(scene.lightCount);
+					const vec3 shadowCol = ray.throughput * BRDF * emission * float(scene.lightCount) * NdotL;
 
-					const float lambertPDF = 1.0f / NdotL * glm::one_over_pi<float>();
-					const float lightPDF = 1.0f / solidAngle;
+					const float lambertPDF = NdotL * glm::one_over_pi<float>();
+					const float lightPDF = squaredDistance / (LNdotL * area);
 
-					if (lightPDF > 0 && lambertPDF > 0)
-					{
-						const unsigned int shadowIdx = atomicAdd(&shadow_ray_cnt, 1);
+					const unsigned int shadowIdx = atomicAdd(&shadow_ray_cnt, 1);
 
-						const float sum = lambertPDF + lightPDF;
-						const float w1 = lambertPDF / sum;
-						const float w2 = lightPDF / sum;
-						sRays[shadowIdx] = ShadowRay(
-							ray.origin, std::move(L), shadowCol / (w1 * lambertPDF + w2 * lightPDF),
-							distance - EPSILON, ray.index
-						);
-						ray.lastNormal = normal;
-					}
+					const float pdf = balancePDFs(lambertPDF, lightPDF);
+					sRays[shadowIdx] = ShadowRay(
+						ray.origin + L * scene.normalEpsilon, L, shadowCol * pdf,
+						distance - scene.distEpsilon, ray.index
+					);
+					ray.lastNormal = normal;
 				}
 			}
 
@@ -382,7 +348,9 @@ __global__ void LAUNCH_BOUNDS shade_regular(Ray * rays, Ray * eRays, ShadowRay *
 		const float prob = ray.bounces >= 3 ? min(0.5f, max(ray.throughput.x, min(ray.throughput.y, ray.throughput.z))) : 1.0f;
 		if (ray.bounces < MAX_DEPTH && prob > EPSILON && prob > RandomFloat(seed))
 		{
+			ray.origin += ray.direction * scene.normalEpsilon;
 			ray.bounces++;
+			ray.lastNormal = normal;
 			ray.throughput /= prob;
 
 			unsigned int primary_index = atomicAdd(&primary_ray_cnt, 1);
@@ -434,43 +402,7 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 		convertToLocalSpace(normal, &T, &B);
 		const vec3 wiLocal = normalize(vec3(dot(T, wi), dot(B, wi), dot(normal, wi)));
 
-		vec3 wmLocal{};
-		switch (mat.type)
-		{
-		case(Beckmann):
-		{
-			wmLocal = mf.sample_beckmann(wiLocal, RandomFloat(seed), RandomFloat(seed));
-			break;
-		}
-		case(GGX):
-		{
-			wmLocal = mf.sample_ggx(wiLocal, RandomFloat(seed), RandomFloat(seed));
-			break;
-		}
-		case(Trowbridge):
-		{
-			wmLocal = mf.sample_trowbridge_reitz(wiLocal, RandomFloat(seed), RandomFloat(seed));
-			break;
-		}
-		case(FresnelBeckmann):
-		{
-			wmLocal = mf.sample_beckmann(wiLocal, RandomFloat(seed), RandomFloat(seed));
-
-			break;
-		}
-		case(FresnelGGX):
-		{
-			wmLocal = mf.sample_ggx(wiLocal, RandomFloat(seed), RandomFloat(seed));
-			break;
-		}
-		case(FresnelTrowbridge):
-		{
-			wmLocal = mf.sample_trowbridge_reitz(wiLocal, RandomFloat(seed), RandomFloat(seed));
-			break;
-		}
-		default:
-			break;
-		}
+		const vec3 wmLocal = mat.sample(mf, wiLocal, RandomFloat(seed), RandomFloat(seed));
 
 		// Half-way vector
 		const vec3 wm = T * wmLocal.x + B * wmLocal.y + normal * wmLocal.z;
@@ -481,51 +413,11 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 		vec3 wo = localToWorld(woLocal, T, B, wm);
 
 		ray.lastBounceType = mat.type;
-		float PDF = 0.0f;
-		switch (mat.type)
-		{
-		case(Beckmann):
-		{
-			PDF = mf.pdf_beckmann(woLocal, wiLocal, wmLocal);
-			break;
-		}
-		case(GGX):
-		{
-			PDF = mf.pdf_ggx(woLocal, wiLocal, wmLocal);
-			break;
-		}
-		case(Trowbridge):
-		{
-			PDF = mf.pdf_trowbridge_reitz(woLocal, wiLocal, wmLocal);
-			break;
-		}
-		case(FresnelBeckmann):
-		{
-			ray.lastBounceType = Beckmann;
-			PDF = mf.pdf_beckmann(woLocal, wiLocal, wmLocal);
+		const float PDF = mat.evaluate(mf, woLocal, wmLocal, wiLocal);
 
-			break;
-		}
-		case(FresnelGGX):
+		if (ray.lastBounceType >= FresnelBeckmann)
 		{
-			ray.lastBounceType = GGX;
-			PDF = mf.pdf_ggx(woLocal, wiLocal, wmLocal);
-			break;
-		}
-		case(FresnelTrowbridge):
-		{
-			ray.lastBounceType = Trowbridge;
-			PDF = mf.pdf_trowbridge_reitz(woLocal, wiLocal, wmLocal);
-			break;
-		}
-		default:
-			break;
-		}
-
-		ray.origin += wm * scene.normalEpsilon;
-
-		if (mat.type >= FresnelBeckmann)
-		{
+			ray.lastBounceType = Fresnel;
 			const float n1 = backFacing ? mat.refractIdx : 1.0f;
 			const float n2 = backFacing ? 1.0f : mat.refractIdx;
 			const float n = n1 / n2;
@@ -545,13 +437,12 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 					ray.lastBounceType = Fresnel;
 					if (backFacing)
 						ray.throughput *= exp(-mat.absorption * ray.t);;
-					ray.origin -= EPSILON * 2.0f * wm;
 					wo = normalize(n * -wi + wm * (n * cosTheta - sqrtf(k)));
 				}
 			}
 		}
 
-		if (ray.lastBounceType != Fresnel && scene.indirect)
+		if (ray.lastBounceType != Fresnel && scene.shadow)
 		{
 			const int light = RandomIntMax(seed, scene.lightCount - 1);
 			const uvec3 lightIdx = scene.indices[scene.lightIndices[light]];
@@ -565,7 +456,7 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 			const vec3 baryLight = triangle::getBaryCoords(lightPos, cNormal, scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z]);
 			const vec3 lightNormal = triangle::getNormal(bary, scene.normals[lightIdx.x], scene.normals[lightIdx.y], scene.normals[lightIdx.z]);
 
-			const float NdotL = dot(normal, L);
+			const float NdotL = dot(wm, L);
 			const float LNdotL = dot(lightNormal, -L);
 
 			if (NdotL > 0 && LNdotL > 0)
@@ -573,79 +464,30 @@ __global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRa
 				const float area = triangle::getArea(scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z]);
 
 				const auto emission = scene.gpuMaterials[scene.gpuMatIdxs[light]].emission;
-
-				float mfPDF = 1.0f;
-				switch (mat.type)
-				{
-				case(Beckmann):
-				{
-					mfPDF = mf.pdf_beckmann(L, wi, wm);
-					break;
-				}
-				case(GGX):
-				{
-					mfPDF = mf.pdf_ggx(L, wi, wm);
-					break;
-				}
-				case(Trowbridge):
-				{
-					mfPDF = mf.pdf_trowbridge_reitz(L, wi, wm);
-					break;
-				}
-				case(FresnelBeckmann):
-				{
-					mfPDF = mf.pdf_beckmann(L, wi, wm);
-					break;
-				}
-				case(FresnelGGX):
-				{
-					mfPDF = mf.pdf_ggx(L, wi, wm);
-					break;
-				}
-				case(FresnelTrowbridge):
-				{
-					mfPDF = mf.pdf_trowbridge_reitz(L, wi, wm);
-					break;
-				}
-				default:
-					break;
-				}
-
-				const vec3 BRDF = matColor * mfPDF;
-				const vec3 shadowCol = ray.throughput * BRDF * emission * NdotL * float(scene.lightCount);
-
-				mfPDF = 1.0f / mfPDF;
+				const float mfPDF = 1.0f / mat.evaluate(mf, L, wm, wi);
 				const float lightPDF = squaredDistance / (LNdotL * area);
 
-				if (lightPDF > 0 && mfPDF > 0)
-				{
-					const unsigned int shadowIdx = atomicAdd(&shadow_ray_cnt, 1);
+				const vec3 shadowCol = ray.throughput * matColor / mfPDF * emission * NdotL / lightPDF;
 
-					const float sum = mfPDF + lightPDF;
-					const float w1 = mfPDF / sum;
-					const float w2 = lightPDF / sum;
-					const float pdf = 1.0f / (w1 * mfPDF + w2 * lightPDF);
+				const unsigned int shadowIdx = atomicAdd(&shadow_ray_cnt, 1);
 
-					sRays[shadowIdx] = ShadowRay(
-						ray.origin, L, shadowCol * PDF * pdf,
-						distance - scene.distEpsilon, ray.index
-					);
-				}
+				const float pdf = balancePDFs(lightPDF, mfPDF);
+
+				sRays[shadowIdx] = ShadowRay(
+					ray.origin + scene.normalEpsilon * L, L, shadowCol,
+					distance - scene.distEpsilon, ray.index
+				);
 			}
-		}
-		else
-		{
-			ray.lastBounceType = Fresnel;
 		}
 
 		ray.throughput *= matColor * PDF;
 		ray.direction = wo;
-
 		ray.throughput = glm::max(vec3(0.0f), ray.throughput);
 
 		const float prob = ray.bounces >= 3 ? min(0.5f, max(ray.throughput.x, min(ray.throughput.y, ray.throughput.z))) : 1.0f;
 		if (ray.bounces < MAX_DEPTH && prob > EPSILON && prob > RandomFloat(seed))
 		{
+			ray.origin += ray.direction * scene.normalEpsilon;
 			ray.bounces++;
 			ray.throughput /= prob;
 
@@ -889,33 +731,33 @@ __global__ void LAUNCH_BOUNDS shade_microfacet_ref(Ray * rays, Ray * eRays, Shad
 		{
 		case(Beckmann):
 		{
-			PDF = mf.pdf_beckmann(woLocal, wiLocal, wmLocal);
+			PDF = mf.pdf_beckmann(woLocal, wmLocal, wiLocal);
 			break;
 		}
 		case(GGX):
 		{
-			PDF = mf.pdf_ggx(woLocal, wiLocal, wmLocal);
+			PDF = mf.pdf_ggx(woLocal, wmLocal, wiLocal);
 			break;
 		}
 		case(Trowbridge):
 		{
-			PDF = mf.pdf_trowbridge_reitz(woLocal, wiLocal, wmLocal);
+			PDF = mf.pdf_trowbridge_reitz(woLocal, wmLocal, wiLocal);
 			break;
 		}
 		case(FresnelBeckmann):
 		{
-			PDF = mf.pdf_beckmann(woLocal, wiLocal, wmLocal);
+			PDF = mf.pdf_beckmann(woLocal, wmLocal, wiLocal);
 
 			break;
 		}
 		case(FresnelGGX):
 		{
-			PDF = mf.pdf_ggx(woLocal, wiLocal, wmLocal);
+			PDF = mf.pdf_ggx(woLocal, wmLocal, wiLocal);
 			break;
 		}
 		case(FresnelTrowbridge):
 		{
-			PDF = mf.pdf_trowbridge_reitz(woLocal, wiLocal, wmLocal);
+			PDF = mf.pdf_trowbridge_reitz(woLocal, wmLocal, wiLocal);
 			break;
 		}
 		default:
@@ -1009,14 +851,9 @@ __global__ void draw_framebuffer(vec4 * currentBuffer, int width, int height)
 	draw(x, y, vec4(glm::pow(col, exponent), 1.0f));
 }
 
-cudaError launchKernels(cudaArray_const_t array, Params & params, int rayBufferSize)
+__host__ inline void sample(uint &frame, Params& params, int rayBufferSize)
 {
-	static uint frame = 1;
-	cudaError err;
-
-	err = cuda(BindSurfaceToArray(framebuffer, array));
-
-	const auto* camera = params.camera;
+		const auto* camera = params.camera;
 
 	const vec3 w = camera->getForward();
 	const vec3 up = camera->getUp();
@@ -1033,9 +870,6 @@ cudaError launchKernels(cudaArray_const_t array, Params & params, int rayBufferS
 		hor *= aspectRatio;
 	else
 		ver *= aspectRatio;
-
-	if (params.samples == 0)
-		cuda(MemcpyToSymbol(primary_ray_cnt, &params.samples, sizeof(int)));
 
 	generatePrimaryRays << <params.smCores * 8, 128 >> > (params.gpuRays, camera->getPosition(), w, hor, ver, params.width, params.height,
 		1.0f / float(params.width), 1.0f / float(params.height), rayBufferSize, frame);
@@ -1055,16 +889,30 @@ cudaError launchKernels(cudaArray_const_t array, Params & params, int rayBufferS
 		connect << <params.smCores * 8, 128 >> > (params.gpuShadowRays, params.gpuScene, rayBufferSize);
 	}
 
+	std::swap(params.gpuRays, params.gpuNextRays);
+	frame++;
+
+}
+
+cudaError launchKernels(cudaArray_const_t array, Params & params, int rayBufferSize)
+{
+	static uint frame = 1;
+	cudaError err;
+
+	err = cuda(BindSurfaceToArray(framebuffer, array));
+	if (params.samples == 0)
+		cuda(MemcpyToSymbol(primary_ray_cnt, &params.samples, sizeof(int)));
+
+	sample(frame, params, rayBufferSize);
+
 	dim3 dimBlock(16, 16);
 	dim3 dimGrid((params.width + dimBlock.x - 1) / dimBlock.x, (params.height + dimBlock.y - 1) / dimBlock.y);
 	draw_framebuffer << <dimGrid, dimBlock >> > (params.gpuScene.currentFrame, params.width, params.height);
 
 	cuda(DeviceSynchronize());
 
-	frame++;
 	params.samples++;
 
 	if (frame >= UINT_MAX) frame = 1;
-	std::swap(params.gpuRays, params.gpuNextRays);
 	return err;
 }

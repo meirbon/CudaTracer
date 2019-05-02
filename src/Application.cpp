@@ -111,7 +111,8 @@ void Application::run()
 
 		auto uiDrawn = m_ThreadPool->push([this](int) { drawUI(); });
 
-		launchKernels(m_RenderView.getCudaArray(), m_Params, m_RayBufferSize);
+		if (m_Params.samples < m_MaxFrameCount || m_MaxFrameCount == 0)
+			launchKernels(m_RenderView.getCudaArray(), m_Params, m_RayBufferSize);
 
 		m_RenderView.draw();
 		uiDrawn.get();
@@ -232,9 +233,11 @@ void Application::drawUI()
 		m_Params.reset();
 	if (ImGui::Checkbox("Reference", &m_Params.reference))
 		m_Params.reset();
-	if (ImGui::Checkbox("Direct", &m_Params.gpuScene.direct))
-		m_Params.reset();
 	if (ImGui::Checkbox("Indirect", &m_Params.gpuScene.indirect))
+		m_Params.reset();
+	if (ImGui::Checkbox("Shadow", &m_Params.gpuScene.shadow))
+		m_Params.reset();
+	if (ImGui::DragInt("Max frames", &m_MaxFrameCount, 1))
 		m_Params.reset();
 
 	ImGui::DragFloat("Speed", &m_MovementSpeed, 0.2f, 0.2f, 100.f);

@@ -39,7 +39,7 @@ int main(int argc, char* argv[])
 	std::string teapot = "Models/teapot.obj";
 	std::string waterCbox = "Models/cbox/CornellBox-Sphere.obj";
 
-	const auto mat = triangleList.addMaterial(Material::light(vec3(1)));
+	const auto mat = triangleList.addMaterial(Material::light(vec3(10)));
 
 	//triangleList.loadModel(sphere, 1.0f, glm::translate(mat4(1.0f), vec3(8.0f, 3.7f, 0.0f)), mat);
 	triangleList.loadModel(sphere, 10.0f, glm::translate(mat4(1.0f), vec3(4.0f, 40.0f, 0.0f)), mat);
@@ -48,8 +48,12 @@ int main(int argc, char* argv[])
 	//triangleList.loadModel(sphere, 1.0f, glm::translate(mat4(1.0f), vec3(-8.0f, 3.7f, 0.0f)), mat);
 
 	const auto fMat = triangleList.addMaterial(Material::fresnel(vec3(1), 1.0f));
+	auto tempMat = Material::lambertian(vec3(1.f, .8f, .8f));
+	tempMat.type = Beckmann;
+	const auto mMat = triangleList.addMaterial(tempMat);
 
-	triangleList.loadModel(sphere, 10.0f, glm::translate(mat4(1.0f), vec3(4.0f, 10.0f, 0.0f)), fMat);
+	triangleList.loadModel(sphere, 3.0f, glm::translate(mat4(1.0f), vec3(-40.0f, 11.0f, -2.0f)), fMat);
+	triangleList.loadModel(sphere, 3.0f, glm::translate(mat4(1.0f), vec3(-30.0f, 11.0f, -2.0f)), mMat);
 
 	//triangleList.addPlane(vec3(50.0f, -1.0f, 50.0f), vec3(-50.0f, 1.0f, 50.0f), vec3(50.0f, -1.0f, -50.0f), tmat);
 	triangleList.loadModel(sponza, .1f, glm::translate(mat4(1.0f), vec3(0.0f, -10.0f, 0.0f)), -1, false);

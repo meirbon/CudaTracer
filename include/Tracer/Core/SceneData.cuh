@@ -17,8 +17,8 @@ using namespace glm;
 
 struct SceneData {
 	bool skyboxEnabled = false;
+	bool shadow = true;
 	bool indirect = true;
-	bool direct = true;
 	int skyboxTexture = -1;
 
 	vec3* vertices = nullptr;

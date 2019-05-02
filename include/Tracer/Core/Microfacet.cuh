@@ -309,7 +309,8 @@ namespace microfacet
 		};
 		bool sampleVisibility;
 
-		__device__ __host__ inline static void sampleGGX_P22_11(float cosThetaI, float* slopex, float* slopey, float r1, float r2) {
+		__device__ __host__ inline static void sampleGGX_P22_11(float cosThetaI, float* slopex, float* slopey, float r1, float r2)
+		{
 			// The special case where the ray comes from normal direction
 			// The following sampling is equivalent to the sampling of
 			// micro facet normals (not slopes) on isotropic rough surface
@@ -349,7 +350,8 @@ namespace microfacet
 			*slopey = S * z * sqrtf(1.0f + (*slopex) * (*slopex));
 		}
 
-		__device__ __host__ inline static vec3 sampleGGX(const vec3 & wi, float alphaX, float alphaY, float r1, float r2) {
+		__device__ __host__ inline static vec3 sampleGGX(const vec3 & wi, float alphaX, float alphaY, float r1, float r2)
+		{
 			// 1. stretch wi
 			const vec3 wiStretched = normalize(vec3(alphaX * wi.x, alphaY * wi.y, wi.z));
 
@@ -423,13 +425,13 @@ namespace microfacet
 			return (-1.0f + sqrtf(1.0f + alpha2Tan2Theta)) / 2.0f;
 		}
 
-		__device__ __host__ inline float pdf_ggx(const vec3 & wo, const vec3 & wi, const vec3 & wm) const
+		__device__ __host__ inline float pdf_ggx(const vec3 & wo, const vec3 & wh, const vec3 & wi) const
 		{
 			if (!sampleVisibility)
 			{
 				const float temp = 1.0f / (1.0f + lambda_ggx(wo));
 				const float temp2 = 1.0f / (1.0f + lambda_ggx(wi));
-				return fabs(dot(wi, wm)) * temp * temp2 / max(1.0e-8f, fabs(CosTheta(wi) * CosTheta(wm)));
+				return fabs(dot(wi, wh)) * temp * temp2 / max(1.0e-8f, fabs(CosTheta(wi) * CosTheta(wh)));
 			}
 			else
 				return G1(lambda_ggx(wo));

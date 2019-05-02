@@ -65,6 +65,7 @@ private:
 
 	int m_RayBufferSize;
 	int m_MaxBufferSize;
+	int m_MaxFrameCount = 0;
 
 	int m_SelectedMatIdx;
 	std::pair<Material*, microfacet::Microfacet*> m_SelectedMat;
