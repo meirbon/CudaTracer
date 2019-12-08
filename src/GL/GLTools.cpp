@@ -1,4 +1,4 @@
-#include <Tracer/GL/GLTools.h>
+#include "GL/GLTools.h"
 #include <iostream>
 
 namespace gl

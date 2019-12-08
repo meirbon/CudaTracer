@@ -1,5 +1,5 @@
-#include <Tracer/Core/TriangleList.h>
-#include <Tracer/Core/Triangle.cuh>
+#include "Core/TriangleList.h"
+#include "Core/Triangle.cuh"
 
 #include <iostream>
 
@@ -52,19 +52,15 @@ void TriangleList::addTriangle(vec3 p0, vec3 p1, vec3 p2, vec3 n0, vec3 n1, vec3
 unsigned int TriangleList::addMaterial(Material mat)
 {
 	constexpr bool sampleVisibility = true;
-
-	const float alpha = max(0.0f, microfacet::RoughnessToAlpha(mat.roughness));
-	m_Microfacets.emplace_back(alpha, alpha, sampleVisibility);
-
 	const unsigned int m = static_cast<unsigned int>(m_Materials.size());
-
+	mat.roughness = 1.0f;
 	m_MaterialMutex.lock();
 	m_Materials.push_back(mat);
 	m_MaterialMutex.unlock();
 	return m;
 }
 
-void TriangleList::loadModel(const std::string & path, float scale, mat4 mat, int material, bool normalize)
+void TriangleList::loadModel(const std::string& path, float scale, mat4 mat, int material, bool normalize)
 {
 	Assimp::Importer importer;
 	importer.SetPropertyBool(AI_CONFIG_PP_PTV_NORMALIZE, normalize);
@@ -98,6 +94,10 @@ void TriangleList::loadModel(const std::string & path, float scale, mat4 mat, in
 
 	for (const auto& mesh : meshes)
 	{
+		m_Vertices.reserve(m_Vertices.size() + mesh.positions.size());
+		m_Normals.reserve(m_Normals.size() + mesh.normals.size());
+		m_TexCoords.reserve(m_TexCoords.size() + mesh.texCoords.size());
+
 		for (size_t i = 0; i < mesh.positions.size(); i++)
 		{
 			const vec4 pos = mat * vec4(mesh.positions[i] * scale, 1.0f);
@@ -111,6 +111,10 @@ void TriangleList::loadModel(const std::string & path, float scale, mat4 mat, in
 
 	for (const auto& mesh : meshes)
 	{
+		m_MaterialIdxs.reserve(m_MaterialIdxs.size() + mesh.indices.size());
+		m_CenterNormals.reserve(m_CenterNormals.size() + mesh.indices.size());
+		m_AABBs.reserve(m_AABBs.size() + mesh.indices.size());
+		
 		for (size_t i = 0; i < mesh.indices.size(); i += 3)
 		{
 			const auto idx0 = mesh.indices[i + 0];
@@ -173,7 +177,7 @@ TriangleList::GPUTextures TriangleList::createTextureBuffer()
 	return buffer;
 }
 
-void TriangleList::processNode(aiNode * node, const aiScene * scene, std::vector<Mesh> & meshes, const std::string & dir, std::mutex & mMutex)
+void TriangleList::processNode(aiNode* node, const aiScene* scene, std::vector<Mesh>& meshes, const std::string& dir, std::mutex& mMutex)
 {
 	std::vector<std::future<void>> meshResults;
 
@@ -196,7 +200,7 @@ void TriangleList::processNode(aiNode * node, const aiScene * scene, std::vector
 		r.get();
 }
 
-TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scene, const std::string & dir)
+TriangleList::Mesh TriangleList::processMesh(aiMesh* mesh, const aiScene* scene, const std::string& dir)
 {
 	Mesh m{};
 
@@ -230,7 +234,7 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 	// return a mesh object created from the extracted mesh data
 
 	auto isNotZero = [](aiColor3D col) {
-		return col.r > 0.0001f&& col.g > 0.0001f&& col.b > 0.0001f;
+		return col.r > 0.0001f && col.g > 0.0001f && col.b > 0.0001f;
 	};
 
 	Material mat;
@@ -343,7 +347,7 @@ TriangleList::Mesh TriangleList::processMesh(aiMesh * mesh, const aiScene * scen
 	return m;
 }
 
-int TriangleList::overwriteTexture(int idx, const std::string & path)
+int TriangleList::overwriteTexture(int idx, const std::string& path)
 {
 	if (m_Textures.size() <= idx)
 		return -1;
@@ -370,7 +374,7 @@ int TriangleList::overwriteTexture(int idx, const std::string & path)
 	return idx;
 }
 
-int TriangleList::loadTexture(const std::string & path)
+int TriangleList::loadTexture(const std::string& path)
 {
 	if (m_LoadedTextures.find(path) != m_LoadedTextures.end()) // Texture already in memory
 		return m_LoadedTextures.at(path);

@@ -1,21 +1,25 @@
-#include <Tracer/CUDA/Kernel.cuh>
+#include "CUDA/Kernel.cuh"
 
 #include <cuda_runtime.h>
 #include <surface_functions.h>
 #include <cuda_surface_types.h>
 #include <device_launch_parameters.h>
 
-#include <Tracer/CUDA/CudaDefinitions.h>
-#include <Tracer/CUDA/CudaAssert.h>
+#include "CUDA/CudaDefinitions.h"
+#include "CUDA/CudaAssert.h"
 
-#include <Tracer/Core/SceneData.cuh>
-#include <Tracer/BVH/MBVHNode.cuh>
-#include <Tracer/Core/Random.cuh>
+#include "Core/SceneData.cuh"
+#include "BVH/MBVHNode.cuh"
+#include "Core/Random.cuh"
+#include "Core/Ray.cuh"
+#include "Core/Material.cuh"
+#include "Core/Triangle.cuh"
+#include "Core/BSDF.h"
 
 using namespace glm;
 
 #ifdef __CUDACC__
-#define LAUNCH_BOUNDS __launch_bounds__(128, 8)
+#define LAUNCH_BOUNDS __launch_bounds__(128, 4)
 #else
 #define LAUNCH_BOUNDS
 #endif
@@ -33,13 +37,6 @@ __device__ int ray_nr_primary = 0;
 //Ray number to fetch different ray from every CUDA thread during the extend step.
 __device__ int ray_nr_extend = 0;
 
-//Ray number to fetch different ray from every CUDA thread in the shade step.
-__device__ int ray_nr_microfacet = 0;
-__device__ int ray_nr_regular = 0;
-__device__ int ray_nr_invalid = 0;
-
-//Ray number to fetch different ray from every CUDA thread in the connect step.
-__device__ int ray_nr_connect = 0;
 //Number of shadow rays generated in shade step, which are placed in connect step.
 __device__ int shadow_ray_cnt = 0;
 
@@ -86,12 +83,126 @@ __global__ void setGlobals(int rayBufferSize, int width, int height)
 	primary_ray_cnt = 0;
 	ray_nr_primary = 0;
 	ray_nr_extend = 0;
+}
 
-	ray_nr_microfacet = 0;
-	ray_nr_regular = 0;
-	ray_nr_invalid = 0;
+__global__ void LAUNCH_BOUNDS shade(Ray* rays, Ray* eRays, ShadowRay* sRays, SceneData scene, unsigned int frame, int activePaths, int pathLength)
+{
+	const int index = threadIdx.x + blockIdx.x * blockDim.x;
+	if (index >= activePaths) return;
 
-	ray_nr_connect = 0;
+	Ray& ray = rays[index];
+	if (!ray.valid())
+	{
+		if (scene.skyboxEnabled)
+		{
+			const vec2 uv = { 1.0f + atan2f(ray.direction.x, -ray.direction.z) * glm::one_over_pi<float>() * 0.5f, 1.0f - acosf(ray.direction.y) * glm::one_over_pi<float>() };
+			const vec3 color = ray.throughput / ray.lastBsdfPDF * vec3(scene.getTextureColor(scene.skyboxTexture, uv));
+			scene.currentFrame[ray.index] += vec4(color, 1.0f);
+		}
+		return;
+	}
+
+	const uvec3 tIdx = scene.indices[ray.hit_idx];
+	vec3 N = scene.centerNormals[ray.hit_idx];
+	const vec3 bary = triangle::getBaryCoords(ray.origin, N, scene.vertices[tIdx.x], scene.vertices[tIdx.y], scene.vertices[tIdx.z]);
+	vec3 iN = triangle::getNormal(bary, scene.normals[tIdx.x], scene.normals[tIdx.y], scene.normals[tIdx.z]);
+	const vec2 tCoords = triangle::getTexCoords(bary, scene.texCoords[tIdx.x], scene.texCoords[tIdx.y], scene.texCoords[tIdx.z]);
+	const Material& mat = scene.gpuMaterials[scene.gpuMatIdxs[ray.hit_idx]];
+	if (mat.normalTex >= 0)
+		iN = sampleToWorld(scene.getTextureNormal(mat.normalTex, tCoords), iN);
+
+	if (mat.is_light())
+	{
+		if (!scene.indirect)
+			return;
+
+		const float DdotNL = -dot(ray.direction, iN);
+		vec3 color;
+
+		if (ray.lastBounceType == Ray::SPECULAR)
+		{
+			color = ray.throughput * mat.emission;
+		}
+		else
+		{
+			const float lightPDF = ray.t * ray.t / (DdotNL * triangle::getArea(scene.vertices[tIdx.x], scene.vertices[tIdx.y], scene.vertices[tIdx.z])) * scene.lightCount;
+			color = ray.throughput * mat.albedo * (1.0f / (ray.lastBsdfPDF + lightPDF));
+		}
+
+		color = max(vec3(0), color);
+
+		scene.currentFrame[ray.index] += vec4(color, 1);
+		return;
+	}
+
+	ray.origin = ray.getHitpoint();
+	ray.throughput = max(vec3(0), ray.throughput / ray.lastBsdfPDF);
+	const float flip = (dot(ray.direction, N) > 0) ? -1.0f : 1.0f;
+	N *= flip;					  // Fix geometric normal
+	iN *= flip;					  // Fix interpolated normal (consistent normal interpolation)
+
+	uint seed = WangHash(ray.index * 16789 + frame * 1791 + pathLength * 720898027);
+
+	const vec3 matColor = mat.diffuseTex < 0 ? mat.albedo : scene.getTextureColor(mat.diffuseTex, tCoords);
+	ShadingData data;
+	vec3 T, B;
+	convertToLocalSpace(iN, &T, &B);
+	data.color = matColor;
+	data.roughness = mat.roughness;
+	data.eta = mat.refractIdx;
+
+	vec3 wo;
+	float pdf;
+	BSDFType reflectedType;
+	const vec3 BSDF = SampleBSDF(data, iN, N, T, B, -ray.direction, RandomFloat(seed), RandomFloat(seed), wo, pdf, reflectedType);
+	ray.lastBounceType = reflectedType == DIFFUSE ? Ray::DIFFUSE : Ray::SPECULAR;
+	ray.direction = wo;
+
+	if (reflectedType == DIFFUSE && scene.shadow && scene.lightCount > 0)
+	{
+		const int light = RandomIntMax(seed, scene.lightCount - 1);
+		const uvec3 lightIdx = scene.indices[scene.lightIndices[light]];
+		const vec3 lightPos = triangle::getRandomPointOnSurface(scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z], RandomFloat(seed), RandomFloat(seed));
+		vec3 L = lightPos - ray.origin;
+		const float sqDist = dot(L, L);
+		const float distance = sqrtf(sqDist);
+		L /= distance;
+
+		const vec3 lN = scene.centerNormals[scene.lightIndices[light]];
+		const float NdotL = dot(iN, L);
+		const float LNdotL = -dot(lN, L);
+
+		if (NdotL > 0 && LNdotL > 0)
+		{
+			const float area = triangle::getArea(scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z]);
+			const auto emission = scene.gpuMaterials[scene.gpuMatIdxs[light]].emission;
+			float shadowPDF;
+			const vec3 sampledBSDF = EvaluateBSDF(data, iN, T, -ray.direction, L, shadowPDF);
+			if (shadowPDF > 0)
+			{
+				const int shadowIdx = atomicAdd(&shadow_ray_cnt, 1);
+				const float lightPDF = sqDist / (LNdotL * area) * scene.lightCount;
+				const vec3 shadowCol = ray.throughput * emission * sampledBSDF * (NdotL / (shadowPDF + lightPDF));
+
+				sRays[shadowIdx] = ShadowRay(
+					ray.origin + scene.normalEpsilon * L, L, shadowCol,
+					distance - 2.0f * scene.distEpsilon, ray.index
+				);
+			}
+		}
+
+		ray.lastBounceType = Ray::DIFFUSE;
+	}
+
+	if (pdf < 1e-6f || isnan(pdf) || any(isnan(ray.throughput)) || all(lessThanEqual(ray.throughput, vec3(0.0f))))
+		return; // Early out in case we have an invalid bsdf
+
+	ray.throughput = max(vec3(0), ray.throughput * BSDF * abs(dot(iN, ray.direction)));
+	ray.origin += N * scene.normalEpsilon;
+	ray.lastNormal = iN;
+	ray.lastBsdfPDF = pdf;
+	int primary_index = atomicAdd(&primary_ray_cnt, 1);
+	eRays[primary_index] = ray;
 }
 
 __global__ void generatePrimaryRays(
@@ -108,752 +219,59 @@ __global__ void generatePrimaryRays(
 	unsigned int frame
 )
 {
-	while (true)
-	{
-		const int index = atomicAdd(&ray_nr_primary, 1);
+	const int index = threadIdx.x + blockIdx.x * blockDim.x;
+	if (index >= rayBufferSize) return;
 
-		// Start from where extended rays ended
-		const int rayIdx = index + primary_ray_cnt;
-		if (rayIdx >= rayBufferSize) return;
+	unsigned int seed = (index + frame * 147565741) * 720898027;
 
-		unsigned int seed = (index + frame * 147565741) * 720898027 * index;
+	const int x = (start_position + index) % w;
+	const int y = ((start_position + index) / w) % h;
 
-		const int x = (start_position + index) % w;
-		const int y = ((start_position + index) / w) % h;
+	const float px = float(x) + RandomFloat(seed) - 0.5f;
+	const float py = float(y) + RandomFloat(seed) - 0.5f;
 
-		const float px = float(x) + RandomFloat(seed) - 0.5f;
-		const float py = float(y) + RandomFloat(seed) - 0.5f;
-
-		rays[rayIdx] = Ray::generate(origin, viewDir, hor, ver, px, py, invw, invh, x + y * w);
-	}
+	rays[index] = Ray::generate(origin, viewDir, hor, ver, px, py, invw, invh, x + y * w);
 }
 
-__global__ void LAUNCH_BOUNDS extend(Ray * rays, SceneData scene, int rayBufferSize)
+__global__ void LAUNCH_BOUNDS extend(Ray* rays, SceneData scene, int rayBufferSize)
 {
-	while (true)
-	{
-		const int index = atomicAdd(&ray_nr_extend, 1);
+	const int index = threadIdx.x + blockIdx.x * blockDim.x;
 
-		if (index >= rayBufferSize) return;
+	if (index >= rayBufferSize) return;
 
-		Ray & ray = rays[index];
-		ray.t = MAX_DISTANCE;
-		MBVHNode::traverseMBVH(ray.origin, ray.direction, &ray.t, &ray.hit_idx, scene);
-	}
+	auto& ray = rays[index];
+	ray.t = MAX_DISTANCE;
+	MBVHNode::traverseMBVH(ray.origin, ray.direction, &ray.t, &ray.hit_idx, scene);
 }
 
-__global__ void LAUNCH_BOUNDS shade_invalid(Ray * rays, Ray * eRays, ShadowRay * sRays, SceneData scene, unsigned int frame, int rayBufferSize)
+__global__ void LAUNCH_BOUNDS connect(ShadowRay* sRays, SceneData scene, int rayBufferSize)
 {
-	while (true)
-	{
-		const int index = atomicAdd(&ray_nr_invalid, 1);
-		if (index >= rayBufferSize) return;
+	const int index = threadIdx.x + blockIdx.x * blockDim.x;
 
-		Ray & ray = rays[index];
-		vec3 color = vec3(0.0f);
+	if (index >= shadow_ray_cnt) return;
 
-		if (ray.valid())
-		{
-			if (!scene.indirect)
-				continue;
-			const Material& mat = scene.gpuMaterials[scene.gpuMatIdxs[ray.hit_idx]];
-			if (mat.type != Light) continue;
-
-			ray.origin = ray.getHitpoint();
-			const uvec3 tIdx = scene.indices[ray.hit_idx];
-			const vec3 cN = scene.centerNormals[ray.hit_idx];
-			const vec3 bary = triangle::getBaryCoords(ray.origin, cN, scene.vertices[tIdx.x], scene.vertices[tIdx.y], scene.vertices[tIdx.z]);
-
-			const vec2 tCoords = triangle::getTexCoords(bary, scene.texCoords[tIdx.x], scene.texCoords[tIdx.y], scene.texCoords[tIdx.z]);
-			vec3 normal;
-			if (mat.normalTex >= 0)
-			{
-				vec3 T, B;
-				convertToLocalSpace(cN, &T, &B);
-				const vec3 n = scene.getTextureNormal(mat.normalTex, tCoords);
-				normal = normalize(localToWorld(n, T, B, cN));
-			}
-			else
-				normal = triangle::getNormal(bary, scene.normals[tIdx.x], scene.normals[tIdx.y], scene.normals[tIdx.z]);
-
-			const bool backFacing = glm::dot(normal, ray.direction) >= 0.0f;
-			if (backFacing) normal *= -1.0f;
-
-			const auto mf = scene.microfacets[scene.gpuMatIdxs[ray.hit_idx]];
-
-			if (ray.lastBounceType != Lambertian)
-			{
-				color = ray.throughput * mat.emission;
-			}
-			else
-			{
-				const float NdotL = dot(ray.lastNormal, ray.direction);
-				const float LNdotL = dot(normal, -ray.direction);
-				const float lightPDF = ray.t * ray.t / (LNdotL * triangle::getArea(scene.vertices[tIdx.x], scene.vertices[tIdx.y], scene.vertices[tIdx.z]));
-
-				const vec3 wi = glm::reflect(-ray.direction, ray.lastNormal);
-				const float oPDF = mat.type <= Lambertian ? NdotL * glm::one_over_pi<float>() : mat.evaluate(mf, ray.direction, ray.lastNormal, wi);
-
-				const vec3 col = ray.throughput * mat.emission * NdotL;
-				if (lightPDF > 0 && oPDF > 0)
-				{
-					const float pdf = balancePDFs(oPDF, lightPDF);
-					color = col * pdf;
-				}
-			}
-		}
-		else if (scene.skyboxEnabled)
-		{
-			const vec2 uv = {
-				1.0f + atan2f(ray.direction.x, -ray.direction.z) * glm::one_over_pi<float>() * 0.5f,
-				1.0f - acosf(ray.direction.y) * glm::one_over_pi<float>()
-			};
-
-			color = ray.throughput * vec3(scene.getTextureColor(scene.skyboxTexture, uv));
-		}
-
-		ray.throughput = vec3(0.0f);
-
-		const float length2 = dot(color, color);
-		if (length2 > 100.0f)
-			color = color / sqrtf(length2) * 10.0f;
-
-		atomicAdd(&scene.currentFrame[ray.index].r, color.r);
-		atomicAdd(&scene.currentFrame[ray.index].g, color.g);
-		atomicAdd(&scene.currentFrame[ray.index].b, color.b);
-		atomicAdd(&scene.currentFrame[ray.index].a, 1.0f);
-	}
+	const ShadowRay& ray = sRays[index];
+	if (!MBVHNode::traverseMBVHShadow(ray.origin, ray.direction, ray.t, scene))
+		scene.currentFrame[ray.index] += vec4(ray.color, 1);
 }
 
-__global__ void LAUNCH_BOUNDS shade_regular(Ray * rays, Ray * eRays, ShadowRay * sRays, SceneData scene, unsigned int frame, int rayBufferSize)
-{
-	while (true)
-	{
-		const int index = atomicAdd(&ray_nr_regular, 1);
-		if (index >= rayBufferSize) return;
-
-		Ray & ray = rays[index];
-		if (!ray.valid()) continue;
-
-		const Material & mat = scene.gpuMaterials[scene.gpuMatIdxs[ray.hit_idx]];
-		if (mat.type == Light || mat.type >= Beckmann) continue;
-
-		vec3 color = vec3(0.0f);
-		unsigned int seed = (frame * ray.index * 147565741) * 720898027 * index;
-
-		ray.origin = ray.getHitpoint();
-		const uvec3 tIdx = scene.indices[ray.hit_idx];
-		const vec3 cN = scene.centerNormals[ray.hit_idx];
-		const vec3 bary = triangle::getBaryCoords(ray.origin, cN, scene.vertices[tIdx.x], scene.vertices[tIdx.y], scene.vertices[tIdx.z]);
-		const vec2 tCoords = triangle::getTexCoords(bary, scene.texCoords[tIdx.x], scene.texCoords[tIdx.y], scene.texCoords[tIdx.z]);
-		vec3 normal = mat.normalTex >= 0
-			? sampleToWorld(scene.getTextureNormal(mat.normalTex, tCoords), cN)
-			: triangle::getNormal(bary, scene.normals[tIdx.x], scene.normals[tIdx.y], scene.normals[tIdx.z]);
-
-		const bool backFacing = glm::dot(normal, ray.direction) >= 0.0f;
-		normal *= backFacing ? -1.0f : 1.0f;
-
-		const vec3 matColor = mat.diffuseTex < 0 ? mat.albedo : scene.getTextureColor(mat.diffuseTex, tCoords);
-
-		switch (mat.type)
-		{
-		case Lambertian: {
-			const vec3 BRDF = matColor * glm::one_over_pi<float>();
-			if (scene.shadow)
-			{
-				const int light = RandomIntMax(seed, scene.lightCount - 1);
-				const uvec3 lightIdx = scene.indices[scene.lightIndices[light]];
-				const vec3 lightPos = triangle::getRandomPointOnSurface(scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z], RandomFloat(seed), RandomFloat(seed));
-				vec3 L = lightPos - ray.origin;
-				const float squaredDistance = dot(L, L);
-				const float distance = sqrtf(squaredDistance);
-				L /= distance;
-
-				const vec3 cNormal = scene.centerNormals[scene.lightIndices[light]];
-				const vec3 baryLight = triangle::getBaryCoords(lightPos, cNormal, scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z]);
-				const vec3 lightNormal = triangle::getNormal(bary, scene.normals[lightIdx.x], scene.normals[lightIdx.y], scene.normals[lightIdx.z]);
-
-				const float NdotL = dot(normal, L);
-				const float LNdotL = dot(lightNormal, -L);
-
-				if (NdotL > 0 && LNdotL > 0)
-				{
-					const float area = triangle::getArea(scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z]);
-					const auto emission = scene.gpuMaterials[scene.gpuMatIdxs[light]].emission;
-					const vec3 shadowCol = ray.throughput * BRDF * emission * float(scene.lightCount) * NdotL;
-
-					const float lambertPDF = NdotL * glm::one_over_pi<float>();
-					const float lightPDF = squaredDistance / (LNdotL * area);
-
-					const unsigned int shadowIdx = atomicAdd(&shadow_ray_cnt, 1);
-
-					const float pdf = balancePDFs(lambertPDF, lightPDF);
-					sRays[shadowIdx] = ShadowRay(
-						ray.origin + L * scene.normalEpsilon, L, shadowCol * pdf,
-						distance - scene.distEpsilon, ray.index
-					);
-					ray.lastNormal = normal;
-				}
-			}
-
-			ray.reflectCosineWeighted(RandomFloat(seed), RandomFloat(seed));
-			const float NdotR = dot(normal, ray.direction);
-			const float PDF = NdotR * glm::one_over_pi<float>();
-			ray.lastBounceType = Lambertian;
-			ray.throughput *= BRDF * NdotR / PDF;
-			break;
-		}
-		case Specular: {
-			ray.throughput *= matColor;
-			ray.reflect(normal);
-			ray.lastBounceType = Specular;
-			break;
-		}
-		case Fresnel: {
-			ray.throughput *= matColor;
-			const vec3 dir = ray.direction;
-			ray.reflect(normal);
-			ray.lastBounceType = Specular;
-
-			const float n1 = backFacing ? mat.refractIdx : 1.0f;
-			const float n2 = backFacing ? 1.0f : mat.refractIdx;
-			const float n = n1 / n2;
-			const float cosTheta = dot(normal, -dir);
-			const float k = 1.0f - (n * n) * (1.0f - cosTheta * cosTheta);
-
-			if (k > 0)
-			{
-				const float a = n1 - n2;
-				const float b = n1 + n2;
-				const float R0 = (a * a) / (b * b);
-				const float c = 1.0f - cosTheta;
-				const float Fr = R0 + (1.0f - R0) * (c * c * c * c * c);
-
-				if (RandomFloat(seed) > Fr)
-				{
-					ray.lastBounceType = Fresnel;
-					if (backFacing)
-						ray.throughput *= exp(-mat.absorption * ray.t);;
-					ray.origin -= EPSILON * 2.0f * normal;
-					ray.direction = normalize(n * dir + normal * (n * cosTheta - sqrtf(k)));
-				}
-			}
-			break;
-		}
-		default:
-			break;
-		}
-
-		ray.throughput = glm::max(vec3(0.0f), ray.throughput);
-		const float prob = ray.bounces >= 3 ? min(0.5f, max(ray.throughput.x, min(ray.throughput.y, ray.throughput.z))) : 1.0f;
-		if (ray.bounces < MAX_DEPTH && prob > EPSILON && prob > RandomFloat(seed))
-		{
-			ray.origin += ray.direction * scene.normalEpsilon;
-			ray.bounces++;
-			ray.lastNormal = normal;
-			ray.throughput /= prob;
-
-			unsigned int primary_index = atomicAdd(&primary_ray_cnt, 1);
-			ray.lastBounceType = mat.type;
-			eRays[primary_index] = ray;
-		}
-		else
-		{
-			ray.throughput = vec3(0.0f);
-			atomicAdd(&scene.currentFrame[ray.index].a, 1.0f);
-		}
-	}
-}
-
-__global__ void LAUNCH_BOUNDS shade_microfacet(Ray * rays, Ray * eRays, ShadowRay * sRays, SceneData scene, unsigned int frame, int rayBufferSize)
-{
-	while (true)
-	{
-		const int index = atomicAdd(&ray_nr_microfacet, 1);
-		if (index >= rayBufferSize) return;
-
-		Ray & ray = rays[index];
-		if (!ray.valid()) continue;
-
-		const Material & mat = scene.gpuMaterials[scene.gpuMatIdxs[ray.hit_idx]];
-		if (mat.type == Light || mat.type < Beckmann) continue;
-
-		vec3 color = vec3(0.0f);
-		unsigned int seed = (frame * ray.index * 147565741) * 720898027 * index;
-
-		ray.origin = ray.getHitpoint();
-		const uvec3 tIdx = scene.indices[ray.hit_idx];
-		const vec3 cN = scene.centerNormals[ray.hit_idx];
-		const vec3 bary = triangle::getBaryCoords(ray.origin, cN, scene.vertices[tIdx.x], scene.vertices[tIdx.y], scene.vertices[tIdx.z]);
-		const vec2 tCoords = triangle::getTexCoords(bary, scene.texCoords[tIdx.x], scene.texCoords[tIdx.y], scene.texCoords[tIdx.z]);
-		vec3 normal = mat.normalTex >= 0
-			? sampleToWorld(scene.getTextureNormal(mat.normalTex, tCoords), cN)
-			: triangle::getNormal(bary, scene.normals[tIdx.x], scene.normals[tIdx.y], scene.normals[tIdx.z]);
-
-		const bool backFacing = glm::dot(normal, ray.direction) >= 0.0f;
-		normal *= backFacing ? -1.0f : 1.0f;
-
-		const vec3 matColor = mat.diffuseTex < 0 ? mat.albedo : scene.getTextureColor(mat.diffuseTex, tCoords);
-		const auto mf = scene.microfacets[scene.gpuMatIdxs[ray.hit_idx]];
-
-		const vec3 wi = -ray.direction;
-
-		vec3 T, B;
-		convertToLocalSpace(normal, &T, &B);
-		const vec3 wiLocal = normalize(vec3(dot(T, wi), dot(B, wi), dot(normal, wi)));
-
-		const vec3 wmLocal = mat.sample(mf, wiLocal, RandomFloat(seed), RandomFloat(seed));
-
-		// Half-way vector
-		const vec3 wm = T * wmLocal.x + B * wmLocal.y + normal * wmLocal.z;
-		// Local new ray direction
-		const vec3 woLocal = glm::reflect(-wiLocal, wmLocal);
-
-		// New outgoing ray direction
-		vec3 wo = localToWorld(woLocal, T, B, wm);
-
-		ray.lastBounceType = mat.type;
-		const float PDF = mat.evaluate(mf, woLocal, wmLocal, wiLocal);
-
-		if (ray.lastBounceType >= FresnelBeckmann)
-		{
-			ray.lastBounceType = Fresnel;
-			const float n1 = backFacing ? mat.refractIdx : 1.0f;
-			const float n2 = backFacing ? 1.0f : mat.refractIdx;
-			const float n = n1 / n2;
-			const float cosTheta = dot(wm, wi);
-			const float k = 1.0f - (n * n) * (1.0f - cosTheta * cosTheta);
-
-			if (k > 0)
-			{
-				const float a = n1 - n2;
-				const float b = n1 + n2;
-				const float R0 = (a * a) / (b * b);
-				const float c = 1.0f - cosTheta;
-				const float Fr = R0 + (1.0f - R0) * (c * c * c * c * c);
-
-				if (RandomFloat(seed) > Fr)
-				{
-					ray.lastBounceType = Fresnel;
-					if (backFacing)
-						ray.throughput *= exp(-mat.absorption * ray.t);;
-					wo = normalize(n * -wi + wm * (n * cosTheta - sqrtf(k)));
-				}
-			}
-		}
-
-		if (ray.lastBounceType != Fresnel && scene.shadow)
-		{
-			const int light = RandomIntMax(seed, scene.lightCount - 1);
-			const uvec3 lightIdx = scene.indices[scene.lightIndices[light]];
-			const vec3 lightPos = triangle::getRandomPointOnSurface(scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z], RandomFloat(seed), RandomFloat(seed));
-			vec3 L = lightPos - ray.origin;
-			const float squaredDistance = dot(L, L);
-			const float distance = sqrtf(squaredDistance);
-			L /= distance;
-
-			const vec3 cNormal = scene.centerNormals[scene.lightIndices[light]];
-			const vec3 baryLight = triangle::getBaryCoords(lightPos, cNormal, scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z]);
-			const vec3 lightNormal = triangle::getNormal(bary, scene.normals[lightIdx.x], scene.normals[lightIdx.y], scene.normals[lightIdx.z]);
-
-			const float NdotL = dot(wm, L);
-			const float LNdotL = dot(lightNormal, -L);
-
-			if (NdotL > 0 && LNdotL > 0)
-			{
-				const float area = triangle::getArea(scene.vertices[lightIdx.x], scene.vertices[lightIdx.y], scene.vertices[lightIdx.z]);
-
-				const auto emission = scene.gpuMaterials[scene.gpuMatIdxs[light]].emission;
-				const float mfPDF = 1.0f / mat.evaluate(mf, L, wm, wi);
-				const float lightPDF = squaredDistance / (LNdotL * area);
-
-				const vec3 shadowCol = ray.throughput * matColor / mfPDF * emission * NdotL / lightPDF;
-
-				const unsigned int shadowIdx = atomicAdd(&shadow_ray_cnt, 1);
-
-				const float pdf = balancePDFs(lightPDF, mfPDF);
-
-				sRays[shadowIdx] = ShadowRay(
-					ray.origin + scene.normalEpsilon * L, L, shadowCol,
-					distance - scene.distEpsilon, ray.index
-				);
-			}
-		}
-
-		ray.throughput *= matColor * PDF;
-		ray.direction = wo;
-		ray.throughput = glm::max(vec3(0.0f), ray.throughput);
-
-		const float prob = ray.bounces >= 3 ? min(0.5f, max(ray.throughput.x, min(ray.throughput.y, ray.throughput.z))) : 1.0f;
-		if (ray.bounces < MAX_DEPTH && prob > EPSILON && prob > RandomFloat(seed))
-		{
-			ray.origin += ray.direction * scene.normalEpsilon;
-			ray.bounces++;
-			ray.throughput /= prob;
-
-			unsigned int primary_index = atomicAdd(&primary_ray_cnt, 1);
-			ray.lastBounceType = mat.type;
-			ray.lastNormal = wm;
-			eRays[primary_index] = ray;
-		}
-		else
-		{
-			ray.throughput = vec3(0.0f);
-			atomicAdd(&scene.currentFrame[ray.index].a, 1.0f);
-		}
-	}
-}
-
-__global__ void LAUNCH_BOUNDS shade_invalid_ref(Ray * rays, Ray * eRays, ShadowRay * sRays, SceneData scene, unsigned int frame, int rayBufferSize)
-{
-	while (true)
-	{
-		const int index = atomicAdd(&ray_nr_invalid, 1);
-		if (index >= rayBufferSize) return;
-
-		Ray & ray = rays[index];
-		vec3 color = vec3(0.0f);
-		float alpha = 1.0f;
-
-		if (ray.valid())
-		{
-			const Material& mat = scene.gpuMaterials[scene.gpuMatIdxs[ray.hit_idx]];
-			if (mat.type != Light) continue;
-			color = ray.throughput * mat.emission;
-		}
-		else if (scene.skyboxEnabled)
-		{
-			const vec2 uv = {
-				1.0f + atan2f(ray.direction.x, -ray.direction.z) * glm::one_over_pi<float>() * 0.5f,
-				1.0f - acosf(ray.direction.y) * glm::one_over_pi<float>()
-			};
-
-			color = ray.throughput * vec3(scene.getTextureColor(scene.skyboxTexture, uv));
-		}
-
-		ray.throughput = vec3(0.0f);
-
-		atomicAdd(&scene.currentFrame[ray.index].r, color.r);
-		atomicAdd(&scene.currentFrame[ray.index].g, color.g);
-		atomicAdd(&scene.currentFrame[ray.index].b, color.b);
-		atomicAdd(&scene.currentFrame[ray.index].a, alpha);
-	}
-}
-
-__global__ void LAUNCH_BOUNDS shade_regular_ref(Ray * rays, Ray * eRays, ShadowRay * sRays, SceneData scene, unsigned int frame, int rayBufferSize)
-{
-	while (true)
-	{
-		const int index = atomicAdd(&ray_nr_regular, 1);
-		if (index >= rayBufferSize) return;
-
-		Ray & ray = rays[index];
-		if (!ray.valid()) continue;
-
-		const Material & mat = scene.gpuMaterials[scene.gpuMatIdxs[ray.hit_idx]];
-		if (mat.type == Light || mat.type >= Beckmann) continue;
-
-		vec3 color = vec3(0.0f);
-		unsigned int seed = (frame * ray.index * 147565741) * 720898027 * index;
-
-		ray.origin = ray.getHitpoint();
-		const uvec3 tIdx = scene.indices[ray.hit_idx];
-		const vec3 cN = scene.centerNormals[ray.hit_idx];
-		const vec3 bary = triangle::getBaryCoords(ray.origin, cN, scene.vertices[tIdx.x], scene.vertices[tIdx.y], scene.vertices[tIdx.z]);
-		const vec2 tCoords = triangle::getTexCoords(bary, scene.texCoords[tIdx.x], scene.texCoords[tIdx.y], scene.texCoords[tIdx.z]);
-		vec3 normal = mat.normalTex >= 0
-			? sampleToWorld(scene.getTextureNormal(mat.normalTex, tCoords), cN)
-			: triangle::getNormal(bary, scene.normals[tIdx.x], scene.normals[tIdx.y], scene.normals[tIdx.z]);
-
-		const bool backFacing = glm::dot(normal, ray.direction) >= 0.0f;
-		normal *= backFacing ? -1.0f : 1.0f;
-
-		const vec3 matColor = mat.diffuseTex < 0 ? mat.albedo : scene.getTextureColor(mat.diffuseTex, tCoords);
-		ray.origin += normal * EPSILON;
-
-		switch (mat.type)
-		{
-		case Lambertian: {
-			const vec3 BRDF = matColor * glm::one_over_pi<float>();
-			ray.reflectCosineWeighted(RandomFloat(seed), RandomFloat(seed));
-			const float NdotR = dot(normal, ray.direction);
-			const float PDF = NdotR * glm::one_over_pi<float>();
-			ray.lastBounceType = Lambertian;
-			ray.throughput *= BRDF * NdotR / PDF;
-			break;
-		}
-		case Specular: {
-			ray.throughput *= matColor;
-			ray.reflect(normal);
-			ray.lastBounceType = Specular;
-			break;
-		}
-		case Fresnel: {
-			ray.throughput *= matColor;
-			const vec3 dir = ray.direction;
-			ray.reflect(normal);
-			ray.lastBounceType = Specular;
-
-			const float n1 = backFacing ? mat.refractIdx : 1.0f;
-			const float n2 = backFacing ? 1.0f : mat.refractIdx;
-			const float n = n1 / n2;
-			const float cosTheta = dot(normal, -dir);
-			const float k = 1.0f - (n * n) * (1.0f - cosTheta * cosTheta);
-
-			if (k > 0)
-			{
-				const float a = n1 - n2;
-				const float b = n1 + n2;
-				const float R0 = (a * a) / (b * b);
-				const float c = 1.0f - cosTheta;
-				const float Fr = R0 + (1.0f - R0) * (c * c * c * c * c);
-
-				const float r = RandomFloat(seed);
-				if (r > Fr)
-				{
-					ray.lastBounceType = Fresnel;
-					if (backFacing)
-						ray.throughput *= exp(-mat.absorption * ray.t);;
-					ray.origin -= EPSILON * 2.0f * normal;
-					ray.direction = normalize(n * dir + normal * (n * cosTheta - sqrtf(k)));
-				}
-			}
-			break;
-		}
-		default:
-			break;
-		}
-
-		ray.throughput = glm::max(vec3(0.0f), ray.throughput);
-		const float prob = ray.bounces >= 3 ? min(0.5f, max(ray.throughput.x, min(ray.throughput.y, ray.throughput.z))) : 1.0f;
-		if (ray.bounces < MAX_DEPTH && prob > EPSILON && prob > RandomFloat(seed))
-		{
-			ray.bounces++;
-			ray.throughput /= prob;
-
-			unsigned int primary_index = atomicAdd(&primary_ray_cnt, 1);
-			ray.lastBounceType = mat.type;
-			eRays[primary_index] = ray;
-		}
-		else
-		{
-			ray.throughput = vec3(0.0f);
-			atomicAdd(&scene.currentFrame[ray.index].a, 1.0f);
-		}
-	}
-}
-
-__global__ void LAUNCH_BOUNDS shade_microfacet_ref(Ray * rays, Ray * eRays, ShadowRay * sRays, SceneData scene, unsigned int frame, int rayBufferSize)
-{
-	while (true)
-	{
-		const int index = atomicAdd(&ray_nr_microfacet, 1);
-		if (index >= rayBufferSize) return;
-
-		Ray & ray = rays[index];
-		if (!ray.valid()) continue;
-
-		const Material & mat = scene.gpuMaterials[scene.gpuMatIdxs[ray.hit_idx]];
-		if (mat.type == Light || mat.type < Beckmann) continue;
-
-		vec3 color = vec3(0.0f);
-		unsigned int seed = (frame * ray.index * 147565741) * 720898027 * index;
-
-		ray.origin = ray.getHitpoint();
-		const uvec3 tIdx = scene.indices[ray.hit_idx];
-		const vec3 cN = scene.centerNormals[ray.hit_idx];
-		const vec3 bary = triangle::getBaryCoords(ray.origin, cN, scene.vertices[tIdx.x], scene.vertices[tIdx.y], scene.vertices[tIdx.z]);
-		const vec2 tCoords = triangle::getTexCoords(bary, scene.texCoords[tIdx.x], scene.texCoords[tIdx.y], scene.texCoords[tIdx.z]);
-		vec3 normal = mat.normalTex >= 0
-			? sampleToWorld(scene.getTextureNormal(mat.normalTex, tCoords), cN)
-			: triangle::getNormal(bary, scene.normals[tIdx.x], scene.normals[tIdx.y], scene.normals[tIdx.z]);
-
-		const bool backFacing = glm::dot(normal, ray.direction) >= 0.0f;
-		normal *= backFacing ? -1.0f : 1.0f;
-
-		const vec3 matColor = mat.diffuseTex < 0 ? mat.albedo : scene.getTextureColor(mat.diffuseTex, tCoords);
-		const auto mf = scene.microfacets[scene.gpuMatIdxs[ray.hit_idx]];
-
-		const vec3 wi = -ray.direction;
-
-		vec3 T, B;
-		convertToLocalSpace(normal, &T, &B);
-		const vec3 wiLocal = normalize(vec3(dot(T, wi), dot(B, wi), dot(normal, wi)));
-
-		vec3 wmLocal{};
-		switch (mat.type)
-		{
-		case(Beckmann):
-		{
-			wmLocal = mf.sample_beckmann(wiLocal, RandomFloat(seed), RandomFloat(seed));
-			break;
-		}
-		case(GGX):
-		{
-			wmLocal = mf.sample_ggx(wiLocal, RandomFloat(seed), RandomFloat(seed));
-			break;
-		}
-		case(Trowbridge):
-		{
-			wmLocal = mf.sample_trowbridge_reitz(wiLocal, RandomFloat(seed), RandomFloat(seed));
-			break;
-		}
-		case(FresnelBeckmann):
-		{
-			wmLocal = mf.sample_beckmann(wiLocal, RandomFloat(seed), RandomFloat(seed));
-
-			break;
-		}
-		case(FresnelGGX):
-		{
-			wmLocal = mf.sample_ggx(wiLocal, RandomFloat(seed), RandomFloat(seed));
-			break;
-		}
-		case(FresnelTrowbridge):
-		{
-			wmLocal = mf.sample_trowbridge_reitz(wiLocal, RandomFloat(seed), RandomFloat(seed));
-			break;
-		}
-		default:
-			break;
-		}
-
-		// Half-way vector
-		const vec3 wm = T * wmLocal.x + B * wmLocal.y + normal * wmLocal.z;
-		// Local new ray direction
-		const vec3 woLocal = glm::reflect(-wiLocal, wmLocal);
-
-		// New outgoing ray direction
-		vec3 wo = localToWorld(woLocal, T, B, wm);
-
-		float PDF = 0.0f;
-		switch (mat.type)
-		{
-		case(Beckmann):
-		{
-			PDF = mf.pdf_beckmann(woLocal, wmLocal, wiLocal);
-			break;
-		}
-		case(GGX):
-		{
-			PDF = mf.pdf_ggx(woLocal, wmLocal, wiLocal);
-			break;
-		}
-		case(Trowbridge):
-		{
-			PDF = mf.pdf_trowbridge_reitz(woLocal, wmLocal, wiLocal);
-			break;
-		}
-		case(FresnelBeckmann):
-		{
-			PDF = mf.pdf_beckmann(woLocal, wmLocal, wiLocal);
-
-			break;
-		}
-		case(FresnelGGX):
-		{
-			PDF = mf.pdf_ggx(woLocal, wmLocal, wiLocal);
-			break;
-		}
-		case(FresnelTrowbridge):
-		{
-			PDF = mf.pdf_trowbridge_reitz(woLocal, wmLocal, wiLocal);
-			break;
-		}
-		default:
-			break;
-		}
-
-		ray.origin += wm * scene.normalEpsilon;
-
-		if (mat.type >= FresnelBeckmann)
-		{
-			ray.lastBounceType = mat.type;
-
-			const float n1 = backFacing ? mat.refractIdx : 1.0f;
-			const float n2 = backFacing ? 1.0f : mat.refractIdx;
-			const float n = n1 / n2;
-			const float cosTheta = dot(wm, wi);
-			const float k = 1.0f - (n * n) * (1.0f - cosTheta * cosTheta);
-
-			if (k > 0)
-			{
-				const float a = n1 - n2;
-				const float b = n1 + n2;
-				const float R0 = (a * a) / (b * b);
-				const float c = 1.0f - cosTheta;
-				const float Fr = R0 + (1.0f - R0) * (c * c * c * c * c);
-
-				const float r = RandomFloat(seed);
-				if (r > Fr)
-				{
-					ray.lastBounceType = Fresnel;
-					if (backFacing)
-						ray.throughput *= exp(-mat.absorption * ray.t);;
-					ray.origin -= EPSILON * 2.0f * wm;
-					wo = normalize(n * -wi + wm * (n * cosTheta - sqrtf(k)));
-				}
-			}
-		}
-
-		ray.throughput *= matColor * PDF;
-		ray.direction = wo;
-
-		ray.throughput = glm::max(vec3(0.0f), ray.throughput);
-
-		const float prob = ray.bounces >= 3 ? min(0.5f, max(ray.throughput.x, min(ray.throughput.y, ray.throughput.z))) : 1.0f;
-		if (ray.bounces < MAX_DEPTH && prob > EPSILON && prob > RandomFloat(seed))
-		{
-			ray.bounces++;
-			ray.throughput /= prob;
-
-			unsigned int primary_index = atomicAdd(&primary_ray_cnt, 1);
-			ray.lastBounceType = mat.type;
-			ray.lastNormal = wm;
-			eRays[primary_index] = ray;
-		}
-		else
-		{
-			ray.throughput = vec3(0.0f);
-			atomicAdd(&scene.currentFrame[ray.index].a, 1.0f);
-		}
-	}
-}
-
-__global__ void LAUNCH_BOUNDS connect(ShadowRay * sRays, SceneData scene, int rayBufferSize)
-{
-	while (true)
-	{
-		const int index = atomicAdd(&ray_nr_connect, 1);
-		if (index >= shadow_ray_cnt) return;
-
-		const ShadowRay & ray = sRays[index];
-		if (MBVHNode::traverseMBVHShadow(ray.origin, ray.direction, ray.t, scene))
-		{
-			atomicAdd(&scene.currentFrame[ray.index].r, ray.color.r);
-			atomicAdd(&scene.currentFrame[ray.index].g, ray.color.g);
-			atomicAdd(&scene.currentFrame[ray.index].b, ray.color.b);
-		}
-	}
-}
-
-__global__ void draw_framebuffer(vec4 * currentBuffer, int width, int height)
+__global__ void draw_framebuffer(vec4* currentBuffer, int width, int height, float frame)
 {
 	const int x = blockIdx.x * blockDim.x + threadIdx.x;
 	const int y = blockIdx.y * blockDim.y + threadIdx.y;
 	if (x >= width || y >= height) return;
 
 	const int index = x + y * width;
-	const vec4 & color = currentBuffer[index];
-	const vec3 col = vec3(color.r, color.g, color.b) / color.a;
+	const vec4& color = currentBuffer[index];
+	const vec3 col = vec3(color.r, color.g, color.b) / frame;
 
 	const vec3 exponent = vec3(1.0f / 2.2f);
 	draw(x, y, vec4(glm::pow(col, exponent), 1.0f));
 }
 
-__host__ inline void sample(uint &frame, Params& params, int rayBufferSize)
+__host__ inline void sample(int& frame, Params& params, int rayBufferSize)
 {
-		const auto* camera = params.camera;
+	const auto* camera = params.camera;
 
 	const vec3 w = camera->getForward();
 	const vec3 up = camera->getUp();
@@ -871,48 +289,84 @@ __host__ inline void sample(uint &frame, Params& params, int rayBufferSize)
 	else
 		ver *= aspectRatio;
 
-	generatePrimaryRays << <params.smCores * 8, 128 >> > (params.gpuRays, camera->getPosition(), w, hor, ver, params.width, params.height,
-		1.0f / float(params.width), 1.0f / float(params.height), rayBufferSize, frame);
 	setGlobals << <1, 1 >> > (rayBufferSize, params.width, params.height);
-	extend << <params.smCores * 8, 128 >> > (params.gpuRays, params.gpuScene, rayBufferSize);
-	if (params.reference)
+
+	int activePaths = params.width * params.height;
+	int groups = activePaths / 128;
+	int groupSize = 128;
+	int connectCount = 0;
+
+	generatePrimaryRays << <groups, groupSize >> > (params.gpuRays, camera->getPosition(), w, hor, ver, params.width, params.height,
+		1.0f / float(params.width), 1.0f / float(params.height), activePaths, frame);
+	cuda(DeviceSynchronize());
+
+	extend << <groups, groupSize >> > (params.gpuRays, params.gpuScene, activePaths);
+	cuda(DeviceSynchronize());
+
+	shade << <groups, groupSize >> > (params.gpuRays, params.gpuNextRays, params.gpuShadowRays, params.gpuScene, frame, activePaths, 0);
+	cuda(DeviceSynchronize());
+
+	cudaMemcpyFromSymbol(&connectCount, shadow_ray_cnt, sizeof(uint), 0, cudaMemcpyDeviceToHost);
+	cudaMemcpyFromSymbol(&activePaths, primary_ray_cnt, sizeof(uint), 0, cudaMemcpyDeviceToHost);
+	std::swap(params.gpuRays, params.gpuNextRays);
+	if (connectCount > 0 && params.gpuScene.shadow)
 	{
-		shade_regular_ref << <params.smCores * 8, 128 >> > (params.gpuRays, params.gpuNextRays, params.gpuShadowRays, params.gpuScene, frame, rayBufferSize);
-		shade_invalid_ref << <params.smCores * 8, 128 >> > (params.gpuRays, params.gpuNextRays, params.gpuShadowRays, params.gpuScene, frame, rayBufferSize);
-		shade_microfacet_ref << <params.smCores * 8, 128 >> > (params.gpuRays, params.gpuNextRays, params.gpuShadowRays, params.gpuScene, frame, rayBufferSize);
-	}
-	else
-	{
-		shade_regular << <params.smCores * 8, 128 >> > (params.gpuRays, params.gpuNextRays, params.gpuShadowRays, params.gpuScene, frame, rayBufferSize);
-		shade_invalid << <params.smCores * 8, 128 >> > (params.gpuRays, params.gpuNextRays, params.gpuShadowRays, params.gpuScene, frame, rayBufferSize);
-		shade_microfacet << <params.smCores * 8, 128 >> > (params.gpuRays, params.gpuNextRays, params.gpuShadowRays, params.gpuScene, frame, rayBufferSize);
-		connect << <params.smCores * 8, 128 >> > (params.gpuShadowRays, params.gpuScene, rayBufferSize);
+		const int shadowGroups = (connectCount + (connectCount % 128)) / 128;
+		const int shadowSize = 128;
+
+		connect << <shadowGroups, shadowSize >> > (params.gpuShadowRays, params.gpuScene, connectCount);
 	}
 
-	std::swap(params.gpuRays, params.gpuNextRays);
+	constexpr int maxPathLength = 5;
+	for (int i = 1; i < maxPathLength; i++)
+	{
+		setGlobals << <1, 1 >> > (rayBufferSize, params.width, params.height);
+		activePaths = activePaths + (activePaths % 128);
+
+		groups = activePaths / 128;
+		groupSize = 128;
+		extend << <groups, groupSize >> > (params.gpuRays, params.gpuScene, activePaths);
+		cuda(DeviceSynchronize());
+		shade << <groups, groupSize >> > (params.gpuRays, params.gpuNextRays, params.gpuShadowRays, params.gpuScene, frame, activePaths, i + 1);
+		cuda(DeviceSynchronize());
+		cudaDeviceSynchronize();
+
+		int connectCount;
+		cudaMemcpyFromSymbol(&connectCount, shadow_ray_cnt, sizeof(uint), 0, cudaMemcpyDeviceToHost);
+		cudaMemcpyFromSymbol(&activePaths, primary_ray_cnt, sizeof(uint), 0, cudaMemcpyDeviceToHost);
+
+		if (connectCount > 0 && params.gpuScene.shadow)
+		{
+			const int shadowGroups = (connectCount + (connectCount % 128)) / 128;
+			const int shadowSize = 128;
+
+			connect << <shadowGroups, shadowSize >> > (params.gpuShadowRays, params.gpuScene, connectCount);
+			cuda(DeviceSynchronize());
+		}
+
+		std::swap(params.gpuRays, params.gpuNextRays);
+	}
 	frame++;
+	cuda(DeviceSynchronize());
+	return;
 
 }
 
-cudaError launchKernels(cudaArray_const_t array, Params & params, int rayBufferSize)
+cudaError launchKernels(cudaArray_const_t array, Params& params, int rayBufferSize)
 {
-	static uint frame = 1;
 	cudaError err;
 
 	err = cuda(BindSurfaceToArray(framebuffer, array));
 	if (params.samples == 0)
 		cuda(MemcpyToSymbol(primary_ray_cnt, &params.samples, sizeof(int)));
 
-	sample(frame, params, rayBufferSize);
+	sample(params.samples, params, rayBufferSize);
+	params.samples++;
 
 	dim3 dimBlock(16, 16);
 	dim3 dimGrid((params.width + dimBlock.x - 1) / dimBlock.x, (params.height + dimBlock.y - 1) / dimBlock.y);
-	draw_framebuffer << <dimGrid, dimBlock >> > (params.gpuScene.currentFrame, params.width, params.height);
+	draw_framebuffer << <dimGrid, dimBlock >> > (params.gpuScene.currentFrame, params.width, params.height, params.samples);
 
 	cuda(DeviceSynchronize());
-
-	params.samples++;
-
-	if (frame >= UINT_MAX) frame = 1;
 	return err;
 }

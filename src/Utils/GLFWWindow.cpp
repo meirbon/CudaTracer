@@ -1,5 +1,5 @@
-#include <Tracer/Utils/GLFWWindow.h>
-#include <Tracer/Utils/Timer.h>
+#include "Utils/GLFWWindow.h"
+#include "Utils/Timer.h"
 
 #include <ImGuiGLFW.h>
 #include <ImGuiOpenGL3.h>

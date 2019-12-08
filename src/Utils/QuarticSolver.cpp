@@ -6,7 +6,7 @@
  *------------------------------------------------------------------------------
  */
 
-#include <Tracer/Utils/QuarticSolver.h>
+#include "Utils/QuarticSolver.h"
 #include <cmath>
 
 int QuarticEquation::Solve(double *const roots) const

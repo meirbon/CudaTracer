@@ -1,8 +1,8 @@
-#include <Tracer/Application.h>
+#include "Application.h"
 
 #include <iostream>
 
-#include <Tracer/CUDA/CudaAssert.h>
+#include "CUDA/CudaAssert.h"
 #include "ImGui/imgui.h"
 
 using namespace core;
@@ -75,7 +75,7 @@ Application::Application(utils::Window* window, TriangleList* tList)
 	);
 }
 
-void Application::loadSkybox(const std::string & path)
+void Application::loadSkybox(const std::string& path)
 {
 	cuda(DeviceSynchronize());
 	if (m_Params.gpuScene.skyboxTexture >= 0) // Overwrite previous sky box if it exists
@@ -95,6 +95,8 @@ void Application::run()
 
 	const vec4 black = vec4(0.0f);
 	std::pair<Material*, Microfacet*> selectedMaterial = std::make_pair(nullptr, nullptr);
+
+	m_Params.gpuScene.lightCount = m_TriangleList->m_LightIndices.size();
 
 	while (!m_Window->shouldClose())
 	{
@@ -186,9 +188,6 @@ void Application::allocateTriangles()
 	cuda(Malloc(&m_Params.gpuScene.gpuMatIdxs, m_TriangleList->m_MaterialIdxs.size() * sizeof(unsigned int)));
 	cuda(MemcpyAsync(m_Params.gpuScene.gpuMatIdxs, m_TriangleList->m_MaterialIdxs.data(), m_TriangleList->m_MaterialIdxs.size() * sizeof(unsigned int), cudaMemcpyHostToDevice));
 
-	cuda(Malloc(&m_Params.gpuScene.microfacets, m_TriangleList->m_Microfacets.size() * sizeof(microfacet::Microfacet)));
-	cuda(MemcpyAsync(m_Params.gpuScene.microfacets, m_TriangleList->m_Microfacets.data(), m_TriangleList->m_Microfacets.size() * sizeof(microfacet::Microfacet), cudaMemcpyHostToDevice));
-
 	m_Params.gpuScene.lightCount = m_TriangleList->m_LightIndices.size();
 	cuda(DeviceSynchronize());
 }
@@ -220,9 +219,8 @@ void Application::free()
 	delete m_ThreadPool;
 }
 
-void Application::updateMaterials(int matIdx, Material * mat, microfacet::Microfacet * mfMat)
+void Application::updateMaterials(int matIdx, Material* mat)
 {
-	cuda(MemcpyAsync(&m_Params.gpuScene.microfacets[matIdx], mfMat, sizeof(microfacet::Microfacet), cudaMemcpyHostToDevice));
 	cuda(MemcpyAsync(&m_Params.gpuScene.gpuMaterials[matIdx], mat, sizeof(Material), cudaMemcpyHostToDevice));
 }
 
@@ -252,17 +250,13 @@ void Application::drawUI()
 	if (m_Keys[GLFW_KEY_T])
 		getMaterialAtPixel(m_MBVHTree->m_Tree.data(), m_MBVHTree->m_PrimitiveIndices.data(), *m_TriangleList, m_Camera, float(m_MousePos.x), float(m_MousePos.y));
 
-	auto* mat = std::get<0>(m_SelectedMat);
-	auto* mfMat = std::get<1>(m_SelectedMat);
+	auto* mat = m_SelectedMat;
 
-	if (mat != nullptr && mfMat != nullptr)
+	if (mat != nullptr)
 	{
 		ImGui::BeginChild("Material");
 
 		bool updateMat = false;
-		const bool aV = mfMat->sampleVisibility;
-		const float aX = mfMat->alphaX;
-		const float aY = mfMat->alphaY;
 		const auto matTypes = Material::getTypes();
 		static bool linkValues = false;
 
@@ -277,19 +271,17 @@ void Application::drawUI()
 			mat->changeType(newType);
 		}
 
+		updateMat |= ImGui::DragFloat("Roughness", &mat->refractIdx, 0.1f, 1.0f, 5.0f);
 		updateMat |= ImGui::DragFloat("RefractIdx", &mat->refractIdx, 0.1f, 1.0f, 5.0f);
 		updateMat |= ImGui::DragFloat3("Color", glm::value_ptr(mat->albedo), 0.1f, 0.0f, 1000.0f);
 		updateMat |= ImGui::Checkbox("Link values", &linkValues);
-		updateMat |= ImGui::Checkbox("Sample Visibility", &mfMat->sampleVisibility);
-		updateMat |= ImGui::DragFloat2("Roughness", glm::value_ptr(mfMat->alpha), 0.01f, 1e-6f, 1.0f);
 
 		if (mat->type == Fresnel || mat->type >= FresnelBeckmann)
 			updateMat |= ImGui::DragFloat3("Absorption", glm::value_ptr(mat->absorption), 0.1f, 0.0f, 100.0f);
 
 		if (updateMat)
 		{
-			if (linkValues) mfMat->alphaY = mfMat->alphaX;
-			updateMaterials(m_SelectedMatIdx, mat, mfMat);
+			updateMaterials(m_SelectedMatIdx, mat);
 			m_Params.reset();
 		}
 
@@ -300,7 +292,7 @@ void Application::drawUI()
 	cuda(DeviceSynchronize());
 }
 
-void Application::getMaterialAtPixel(const MBVHNode * nodes, const unsigned int* primIndices, TriangleList & tList, Camera & camera, int x, int y)
+void Application::getMaterialAtPixel(const MBVHNode* nodes, const unsigned int* primIndices, TriangleList& tList, Camera& camera, int x, int y)
 {
 	Ray ray = camera.generateRay(float(x), float(y));
 	MBVHNode::traverseMBVH(ray.origin, ray.direction, &ray.t, &ray.hit_idx, nodes, primIndices, tList);
@@ -308,11 +300,11 @@ void Application::getMaterialAtPixel(const MBVHNode * nodes, const unsigned int*
 	if (ray.valid())
 	{
 		m_SelectedMatIdx = tList.m_MaterialIdxs[ray.hit_idx];
-		m_SelectedMat = std::make_pair(&tList.m_Materials[m_SelectedMatIdx], &tList.m_Microfacets[m_SelectedMatIdx]);
+		m_SelectedMat = &tList.m_Materials[m_SelectedMatIdx];
 	}
 	else
 	{
 		m_SelectedMatIdx = -1;
-		m_SelectedMat = std::make_pair(nullptr, nullptr);
+		m_SelectedMat = nullptr;
 	}
 }

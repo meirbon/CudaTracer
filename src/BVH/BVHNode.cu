@@ -1,5 +1,5 @@
-#include <Tracer/BVH/BVHNode.cuh>
-#include <Tracer/Utils/ctpl.h>
+#include "BVH/BVHNode.cuh"
+#include "Utils/ctpl.h"
 
 #include <glm/glm.hpp>
 
